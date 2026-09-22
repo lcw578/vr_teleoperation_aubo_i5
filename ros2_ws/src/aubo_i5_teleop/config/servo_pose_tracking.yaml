@@ -1,0 +1,104 @@
+###############################################
+# MoveIt Servo 配置 —— **pose tracking 版**（阶段 3 新路线）
+#
+# 底本：官方同版本发布的那一份
+#   /opt/ros/humble/share/moveit_servo/config/panda_simulated_config_pose_tracking.yaml
+# 为什么用"pose tracking 版"而不是普通版：两者有实质差别（见下），pose tracking
+# 对应的就是这一份。下面每处改动都标了原因，未标的就是官方原值原样。
+#
+# 与官方 pose tracking 版的**全部差异**（共 7 处）：
+#   1. move_group_name: panda_arm -> manipulator        （我们 SRDF 的组名）
+#   2. planning_frame: panda_link0 -> world             （我们 URDF 的根，见 world_joint）
+#   3. ee_frame_name: panda_hand -> gripper_tip_link    （我们 manipulator 链的顶端）
+#   4. robot_link_command_frame: panda_hand -> gripper_tip_link
+#      （官方 pose tracking 版把这两个都设成 EE 帧，我们保持一致；改成 base_link 会改变
+#         PID 误差的参考系，属于"手感"范畴，等手柄到了再定）
+#   5. command_out_type: trajectory_msgs/JointTrajectory -> std_msgs/Float64MultiArray
+#   6. command_out_topic -> /forward_command_controller_position/commands
+#   7. publish_joint_velocities: true -> false
+#      （5/6/7 是一组：Float64MultiArray 只承载一个数组，且我们的位置控制器是
+#        position-only。这个组合与 LARA（Aubo i5 + Servo 的同类先例）一致。）
+#   8. 新增 is_primary_planning_scene_monitor: false
+#      （官方这份文件里**没有**这一项，默认 true；我们的 move_group 才是主
+#        planning scene 持有者，必须显式设 false）
+#   —— 另外 publish_period 与奇异阈值按下面的理由调整，见各自注释。
+###############################################
+use_gazebo: false # Whether the robot is started in a Gazebo simulation environment
+
+## Properties of incoming commands
+command_in_type: "speed_units" # "unitless"> in the range [-1:1], as if from joystick. "speed_units"> cmds are in m/s and rad/s
+scale:
+  # Scale parameters are only used if command_in_type=="unitless"
+  linear:  0.6  # Max linear velocity. Unit is [m/s]. Only used for Cartesian commands.
+  rotational:  0.3 # Max angular velocity. Unit is [rad/s]. Only used for Cartesian commands.
+  # Max joint angular/linear velocity. Only used for joint commands on joint_command_in_topic.
+  joint: 0.01
+
+# Optionally override Servo's internal velocity scaling when near singularity or collision (0.0 = use internal velocity scaling)
+# override_velocity_scaling_factor = 0.0 # valid range [0.0:1.0]
+
+## Properties of outgoing commands
+# publish_period 同时决定两件事：Servo 的输出周期 **和** PoseTracking 的 PID 循环频率
+# （pose_tracking.cpp:80 `loop_rate_(1.0 / servo_parameters->publish_period)`）。
+# 官方 demo 是 0.034（29 Hz），偏慢；LARA（同款机器人）用 0.005（200 Hz），
+# 且我们的 controller_manager 也是 200 Hz，所以取 0.005。
+# ⚠️ 这是本轮唯一一个"选了 LARA 而不是官方 demo"的数值，若出现 CPU 吃紧或
+#    "Target control rate was missed" 警告，第一个要调的就是它。
+publish_period: 0.005  # 1/Nominal publish rate [seconds]
+low_latency_mode: false  # 官方 pose tracking 版未设此项(=false)。twist 由内部 PID 产生，此项影响很小
+
+# What type of topic does your robot driver expect?
+# Currently supported are std_msgs/Float64MultiArray or trajectory_msgs/JointTrajectory
+command_out_type: std_msgs/Float64MultiArray
+
+# What to publish? Can save some bandwidth as most robots only require positions or velocities
+publish_joint_positions: true
+publish_joint_velocities: false   # Float64MultiArray 只装一个数组；且我们控制器是 position-only
+publish_joint_accelerations: false
+
+## Plugins for smoothing outgoing commands
+# 注意：Servo **要求**此插件存在（设空会 "A smoothing plugin is required." 并 SIGABRT）。
+# 它的系数参数是 butterworth_filter_coeff，读的是**节点根命名空间**（插件 ParamListener
+# 的 prefix 默认为空），默认值 1.5；写在这个 moveit_servo 块里不会生效，所以这里不写。
+smoothing_filter_plugin_name: "online_signal_smoothing::ButterworthFilterPlugin"
+
+## MoveIt properties
+move_group_name:  manipulator  # Often 'manipulator' or 'arm'
+planning_frame: world  # The MoveIt planning frame. Often 'base_link' or 'world'
+
+## Other frames
+ee_frame_name: gripper_tip_link  # The name of the end effector link, used to return the EE pose
+robot_link_command_frame:  gripper_tip_link  # commands must be given in the frame of a robot link
+
+## Stopping behaviour
+incoming_command_timeout:  0.1  # Stop servoing if X seconds elapse without a new command
+# If 0, republish commands forever even if the robot is stationary. Otherwise, specify num. to publish.
+# Important because ROS may drop some messages and we need the robot to halt reliably.
+num_outgoing_halt_msgs_to_publish: 4
+
+## Configure handling of singularities and joint limits
+# 阈值不是抄来的，是按本机实测的条件数分布定的（在"末端离地>30cm"的操作空间里采样 8650 个位姿：
+# 25% 分位 13.8 | 中位数 21.1 | 75% 分位 36.3 | 95% 分位 164.7 | 99% 分位 788.3）。
+# 官方/ panda 的 17/30 会挡掉我们 62% 的可行位姿（其中 33% 直接急停）——
+# 6-DOF 臂的条件数天然比 7-DOF 高得多，照抄不可用。
+lower_singularity_threshold:  50.0  # Start decelerating when the condition number hits this (close to singularity)
+hard_stop_singularity_threshold: 200.0 # Stop when the condition number hits this
+joint_limit_margin: 0.1 # added as a buffer to joint limits [radians]. If moving quickly, make this larger.
+leaving_singularity_threshold_multiplier: 2.0 # Multiply the hard stop limit by this when leaving singularity
+
+## Topic names
+cartesian_command_in_topic: ~/delta_twist_cmds  # PoseTracking 的 PID 输出发到这里，由同节点的 Servo 订阅
+joint_command_in_topic: ~/delta_joint_cmds # Topic for incoming joint angle commands
+joint_topic: /joint_states
+status_topic: ~/status # Publish status to this topic
+command_out_topic: /forward_command_controller_position/commands # Publish outgoing commands here
+
+## Collision checking for the entire robot body
+check_collisions: true # Check collisions?
+collision_check_rate: 10.0 # [Hz] Collision-checking can easily bog down a CPU if done too often.
+self_collision_proximity_threshold: 0.01 # Start decelerating when a self-collision is this far [m]
+scene_collision_proximity_threshold: 0.02 # Start decelerating when a scene collision is this far [m]
+
+## 我们这一侧的所有权声明（官方文件里没有这一项，默认 true）
+# move_group 是主 planning scene 源，设 true 会两个节点抢 /get_planning_scene
+is_primary_planning_scene_monitor: false

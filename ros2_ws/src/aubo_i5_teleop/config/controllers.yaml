@@ -1,0 +1,71 @@
+# ros2_control 控制器配置（MuJoCo 后端，阶段 2a）
+#
+# 内容沿用官方 aubo_ros2_driver/config/aubo_controllers.yaml，只改了两处：
+#   1. update_rate: 200 -> 已确认（控制器 200 Hz 配 MuJoCo 500 Hz 物理）
+#      （官方那两个文件本身就不一致：aubo_controllers.yaml 写 200，
+#        aubo_i5_update_rate.yaml 写 125。这里统一取 200。）
+#   2. 删掉了 forward_command_controller_position（阶段 2a 不用；需要时再加回来）
+#
+# ⚠️ 待实测确认：constraints 里的 goal_time: 0.0 与 stopped_velocity_tolerance: 0.0
+#    的语义（是"不检查"还是"零容差"）。若不是"不检查"，JTC 可能因为物理仿真的
+#    重力稳态误差（实测约 1.04°）而报目标容差超限。先按原样跑，看现象再调。
+
+controller_manager:
+  ros__parameters:
+    update_rate: 200  # Hz
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    joint_trajectory_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    # 夹爪单独一个控制器（不放进 JTC：MoveIt 的 manipulator 组是 6 自由度，
+    # 夹爪是另一个组，混在一条轨迹里 MoveIt 不会规划它）
+
+    # 这是**厂家原配置里就有**的控制器（我当初写这份配置时删掉了它）。
+    # MoveIt Servo 是"高频流式位置命令"，本来就该发给这种控制器，而不是 JTC——
+    # JTC 是给 action 式轨迹跟踪用的，实测它不执行每一条流式消息（Servo 命令 161.7mm，机械臂只走 13mm）。
+    forward_command_controller_position:
+      type: forward_command_controller/ForwardCommandController
+
+    gripper_controller:
+      type: forward_command_controller/ForwardCommandController
+
+joint_trajectory_controller:
+  ros__parameters:
+    joints:
+      - shoulder_joint
+      - upperArm_joint
+      - foreArm_joint
+      - wrist1_joint
+      - wrist2_joint
+      - wrist3_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    state_publish_rate: 100.0
+    action_monitor_rate: 20.0
+    allow_partial_joints_goal: false
+    constraints:
+      stopped_velocity_tolerance: 0.0
+      goal_time: 0.0
+
+gripper_controller:
+  ros__parameters:
+    joints:
+      - left_outer_knuckle_joint
+    interface_name: position
+
+forward_command_controller_position:
+  ros__parameters:
+    joints:
+      - shoulder_joint
+      - upperArm_joint
+      - foreArm_joint
+      - wrist1_joint
+      - wrist2_joint
+      - wrist3_joint
+    interface_name: position

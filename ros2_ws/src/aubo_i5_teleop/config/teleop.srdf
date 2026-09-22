@@ -1,0 +1,194 @@
+<?xml version="1.0"?>
+<!--
+  Aubo i5 + AG95 夹爪 的 MoveIt 语义描述（本项目自建）。
+
+  为什么要自建而不是直接用官方那份：
+    官方 aubo_robot.srdf 只描述机械臂，不含夹爪。而**夹爪的相邻连杆网格在关节处本就重叠**，
+    若不排除，MoveIt 会认为机器人永远处于自碰撞状态 —— Servo 会直接拒绝运动。
+    所以必须把夹爪的 disable_collisions 合并进来。
+
+  来源：
+    - 机械臂部分：aubo_ros2_driver/aubo_moveit_config/config/aubo_robot.srdf（12 条排除）
+    - 夹爪部分：  dh_gripper_ros/dh_ag95_moveit_config/config/dh_ag95_gripper.srdf（45 条排除）
+    - 二者都未改动，只是合并
+
+  与官方臂 SRDF 的唯一实质改动：
+    manipulator 组的 chain 上端从 ee_link 改成 gripper_tip_link。
+    这样 MoveIt 的 IK 目标和 Servo 的 EE 帧都落在**夹爪尖端**（真正的交互点），
+    而不是手腕。这个设计抄自 LARA_AUBOi5_AG95（它用 arm 组 + teleop_link 做同一件事）。
+    链只经过固定关节，所以 manipulator 仍是 6 自由度，夹爪的手指关节不在其中。
+
+  ⚠️ AG95 是**代用件**（真机夹爪自制）。自制夹爪到位后需替换夹爪部分并重跑排除项。
+-->
+<robot name="aubo_i5_robot">
+
+  <group name="manipulator">
+    <chain base_link="base_link" tip_link="gripper_tip_link"/>
+  </group>
+
+  <group name="endeffector">
+    <link name="ee_link"/>
+  </group>
+
+  <group name="gripper">
+    <joint name="gripper_base_joint"/>
+    <joint name="ag95_body_joint"/>
+    <joint name="left_inner_knuckle_joint"/>
+    <joint name="left_outer_knuckle_joint"/>
+    <joint name="left_finger_joint"/>
+    <joint name="left_inner_finger_pad_joint"/>
+    <joint name="right_inner_knuckle_joint"/>
+    <joint name="right_outer_knuckle_joint"/>
+    <joint name="right_finger_joint"/>
+    <joint name="right_inner_finger_pad_joint"/>
+  </group>
+
+  <!-- 臂的预设位姿（来自官方 SRDF） -->
+  <group_state name="up" group="manipulator">
+    <joint name="shoulder_joint" value="0"/>
+    <joint name="upperArm_joint" value="0"/>
+    <joint name="foreArm_joint" value="0"/>
+    <joint name="wrist1_joint" value="0"/>
+    <joint name="wrist2_joint" value="0"/>
+    <joint name="wrist3_joint" value="0"/>
+  </group_state>
+
+  <!-- 夹爪开合（来自 AG95 官方 SRDF） -->
+  <group_state name="open" group="gripper">
+    <joint name="left_finger_joint" value="0"/>
+    <joint name="left_inner_knuckle_joint" value="0"/>
+    <joint name="left_outer_knuckle_joint" value="0"/>
+    <joint name="right_finger_joint" value="0"/>
+    <joint name="right_inner_knuckle_joint" value="0"/>
+    <joint name="right_outer_knuckle_joint" value="0"/>
+  </group_state>
+  <group_state name="closed" group="gripper">
+    <joint name="left_finger_joint" value="0.93"/>
+    <joint name="left_inner_knuckle_joint" value="0.93"/>
+    <joint name="left_outer_knuckle_joint" value="0.93"/>
+    <joint name="right_finger_joint" value="0.93"/>
+    <joint name="right_inner_knuckle_joint" value="0.93"/>
+    <joint name="right_outer_knuckle_joint" value="0.93"/>
+  </group_state>
+
+  <end_effector name="ag95" parent_link="gripper_tip_link" group="gripper"/>
+
+  <!-- ===== 碰撞排除 ===== -->
+  <!-- 机械臂内部（12 条，官方原样）-->
+  <disable_collisions link1="base_link" link2="shoulder_Link" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="upperArm_Link" reason="Never"/>
+  <disable_collisions link1="ee_link" link2="wrist1_Link" reason="Never"/>
+  <disable_collisions link1="ee_link" link2="wrist2_Link" reason="Never"/>
+  <disable_collisions link1="ee_link" link2="wrist3_Link" reason="Adjacent"/>
+  <disable_collisions link1="foreArm_Link" link2="upperArm_Link" reason="Adjacent"/>
+  <disable_collisions link1="foreArm_Link" link2="wrist1_Link" reason="Adjacent"/>
+  <disable_collisions link1="shoulder_Link" link2="upperArm_Link" reason="Adjacent"/>
+  <disable_collisions link1="shoulder_Link" link2="wrist1_Link" reason="Never"/>
+  <disable_collisions link1="wrist1_Link" link2="wrist2_Link" reason="Adjacent"/>
+  <disable_collisions link1="wrist1_Link" link2="wrist3_Link" reason="Never"/>
+  <disable_collisions link1="wrist2_Link" link2="wrist3_Link" reason="Adjacent"/>
+
+  <!-- 夹爪与臂的挂接处（新增，父子里程碑）-->
+    <disable_collisions link1="ee_link" link2="ag95_base_link" reason="Adjacent"/>
+    <!-- 下面两条是实测补的：夹爪装在 ee_link(=wrist3_Link 原点) 上，安装板与手腕法兰面
+         **恰好贴面**（MoveIt 报 depth=0.0000，不是干涉）。它们的相对位姿是固定的
+         （整条链都是固定关节），检查无意义，故与其它相邻连杆一致地排除。 -->
+    <disable_collisions link1="ag95_base_link" link2="wrist3_Link" reason="Adjacent"/>
+    <disable_collisions link1="ag95_body" link2="ee_link" reason="Adjacent"/>
+
+  <!-- 夹爪内部（45 条，官方原样）-->
+  <disable_collisions link1="ag95_base_link" link2="ag95_body" reason="Adjacent" />
+  <disable_collisions link1="ag95_base_link" link2="left_finger" reason="Never" />
+  <disable_collisions link1="ag95_base_link" link2="left_finger_pad" reason="Never" />
+  <disable_collisions link1="ag95_base_link" link2="left_inner_knuckle" reason="Never" />
+  <disable_collisions link1="ag95_base_link" link2="left_outer_knuckle" reason="Never" />
+  <disable_collisions link1="ag95_base_link" link2="right_finger" reason="Never" />
+  <disable_collisions link1="ag95_base_link" link2="right_finger_pad" reason="Never" />
+  <disable_collisions link1="ag95_base_link" link2="right_inner_knuckle" reason="Never" />
+  <disable_collisions link1="ag95_base_link" link2="right_outer_knuckle" reason="Never" />
+  <disable_collisions link1="ag95_body" link2="left_finger" reason="Never" />
+  <disable_collisions link1="ag95_body" link2="left_finger_pad" reason="Never" />
+  <disable_collisions link1="ag95_body" link2="left_inner_knuckle" reason="Adjacent" />
+  <disable_collisions link1="ag95_body" link2="left_outer_knuckle" reason="Adjacent" />
+  <disable_collisions link1="ag95_body" link2="right_finger" reason="Never" />
+  <disable_collisions link1="ag95_body" link2="right_finger_pad" reason="Never" />
+  <disable_collisions link1="ag95_body" link2="right_inner_knuckle" reason="Adjacent" />
+  <disable_collisions link1="ag95_body" link2="right_outer_knuckle" reason="Adjacent" />
+  <disable_collisions link1="left_finger" link2="left_finger_pad" reason="Adjacent" />
+  <disable_collisions link1="left_finger" link2="left_inner_knuckle" reason="Default" />
+  <disable_collisions link1="left_finger" link2="left_outer_knuckle" reason="Adjacent" />
+  <disable_collisions link1="left_finger" link2="right_finger" reason="Never" />
+  <disable_collisions link1="left_finger" link2="right_finger_pad" reason="Never" />
+  <disable_collisions link1="left_finger" link2="right_inner_knuckle" reason="Never" />
+  <disable_collisions link1="left_finger" link2="right_outer_knuckle" reason="Never" />
+  <disable_collisions link1="left_finger_pad" link2="left_inner_knuckle" reason="Default" />
+  <disable_collisions link1="left_finger_pad" link2="left_outer_knuckle" reason="Never" />
+  <disable_collisions link1="left_finger_pad" link2="right_finger" reason="Never" />
+  <disable_collisions link1="left_finger_pad" link2="right_finger_pad" reason="Never" />
+  <disable_collisions link1="left_finger_pad" link2="right_inner_knuckle" reason="Never" />
+  <disable_collisions link1="left_finger_pad" link2="right_outer_knuckle" reason="Never" />
+  <disable_collisions link1="left_inner_knuckle" link2="left_outer_knuckle" reason="Never" />
+  <disable_collisions link1="left_inner_knuckle" link2="right_finger" reason="Never" />
+  <disable_collisions link1="left_inner_knuckle" link2="right_finger_pad" reason="Never" />
+  <disable_collisions link1="left_inner_knuckle" link2="right_inner_knuckle" reason="Never" />
+  <disable_collisions link1="left_inner_knuckle" link2="right_outer_knuckle" reason="Never" />
+  <disable_collisions link1="left_outer_knuckle" link2="right_finger" reason="Never" />
+  <disable_collisions link1="left_outer_knuckle" link2="right_finger_pad" reason="Never" />
+  <disable_collisions link1="left_outer_knuckle" link2="right_inner_knuckle" reason="Never" />
+  <disable_collisions link1="left_outer_knuckle" link2="right_outer_knuckle" reason="Never" />
+  <disable_collisions link1="right_finger" link2="right_finger_pad" reason="Adjacent" />
+  <disable_collisions link1="right_finger" link2="right_inner_knuckle" reason="Default" />
+  <disable_collisions link1="right_finger" link2="right_outer_knuckle" reason="Adjacent" />
+  <disable_collisions link1="right_finger_pad" link2="right_inner_knuckle" reason="Default" />
+  <disable_collisions link1="right_finger_pad" link2="right_outer_knuckle" reason="Never" />
+  <disable_collisions link1="right_inner_knuckle" link2="right_outer_knuckle" reason="Never" />
+
+  <!-- ======== 臂 ↔ 夹爪 跨组配对（37 条）：取自 LARA 的 SRDF，按名字映射 ========
+       来源：_refs/LARA_AUBOi5_AG95/lara_moveit_config/config/lara_base_scene.srdf
+       那份是 MoveIt Setup Assistant 生成的（该仓库 README 自述 auto-generated），
+       即"让机器人扫过大量构型、把任何位形下都不可能相碰的配对写进来"——
+       正是我们之前缺失的那一类：夹爪内部 45 对我们有，臂内部 12 对也有（与厂家 SRDF 一致），
+       但臂与夹爪之间的跨组配对原来只有 3 条，于是 MoveIt 一直在检查那些配对，
+       Servo 因此持续 DECELERATE_FOR_COLLISION（实测跟随度 2% → 关掉自碰撞检查后 57%）。
+       名字映射：wrist_1/2/3_link→wrist1/2/3_Link、forearm_link→foreArm_Link 等，
+       AG95 的 10 个连杆名两边完全一致。
+       注意：该清单只覆盖 wrist1/2/3 而未覆盖 shoulder/upperArm/foreArm——这符合 Setup
+       Assistant 的语义（夹爪伸不到那么远，那些配对属于"可能相碰"，故意留检查），不是遗漏。 -->
+  <disable_collisions link1="ag95_base_link" link2="wrist1_Link" reason="Never" />
+  <disable_collisions link1="ag95_base_link" link2="wrist2_Link" reason="Never" />
+  <disable_collisions link1="ag95_body" link2="wrist1_Link" reason="Never" />
+  <disable_collisions link1="ag95_body" link2="wrist2_Link" reason="Never" />
+  <disable_collisions link1="ag95_body" link2="wrist3_Link" reason="Never" />
+  <disable_collisions link1="ee_link" link2="left_finger" reason="Never" />
+  <disable_collisions link1="ee_link" link2="left_finger_pad" reason="Never" />
+  <disable_collisions link1="ee_link" link2="left_inner_knuckle" reason="Never" />
+  <disable_collisions link1="ee_link" link2="left_outer_knuckle" reason="Never" />
+  <disable_collisions link1="ee_link" link2="right_finger" reason="Never" />
+  <disable_collisions link1="ee_link" link2="right_finger_pad" reason="Never" />
+  <disable_collisions link1="ee_link" link2="right_inner_knuckle" reason="Never" />
+  <disable_collisions link1="ee_link" link2="right_outer_knuckle" reason="Never" />
+  <disable_collisions link1="left_finger" link2="wrist1_Link" reason="Never" />
+  <disable_collisions link1="left_finger" link2="wrist2_Link" reason="Never" />
+  <disable_collisions link1="left_finger" link2="wrist3_Link" reason="Never" />
+  <disable_collisions link1="left_finger_pad" link2="wrist1_Link" reason="Never" />
+  <disable_collisions link1="left_finger_pad" link2="wrist2_Link" reason="Never" />
+  <disable_collisions link1="left_finger_pad" link2="wrist3_Link" reason="Never" />
+  <disable_collisions link1="left_inner_knuckle" link2="wrist1_Link" reason="Never" />
+  <disable_collisions link1="left_inner_knuckle" link2="wrist2_Link" reason="Never" />
+  <disable_collisions link1="left_inner_knuckle" link2="wrist3_Link" reason="Never" />
+  <disable_collisions link1="left_outer_knuckle" link2="wrist1_Link" reason="Never" />
+  <disable_collisions link1="left_outer_knuckle" link2="wrist2_Link" reason="Never" />
+  <disable_collisions link1="left_outer_knuckle" link2="wrist3_Link" reason="Never" />
+  <disable_collisions link1="right_finger" link2="wrist1_Link" reason="Never" />
+  <disable_collisions link1="right_finger" link2="wrist2_Link" reason="Never" />
+  <disable_collisions link1="right_finger" link2="wrist3_Link" reason="Never" />
+  <disable_collisions link1="right_finger_pad" link2="wrist1_Link" reason="Never" />
+  <disable_collisions link1="right_finger_pad" link2="wrist2_Link" reason="Never" />
+  <disable_collisions link1="right_finger_pad" link2="wrist3_Link" reason="Never" />
+  <disable_collisions link1="right_inner_knuckle" link2="wrist1_Link" reason="Never" />
+  <disable_collisions link1="right_inner_knuckle" link2="wrist2_Link" reason="Never" />
+  <disable_collisions link1="right_inner_knuckle" link2="wrist3_Link" reason="Never" />
+  <disable_collisions link1="right_outer_knuckle" link2="wrist1_Link" reason="Never" />
+  <disable_collisions link1="right_outer_knuckle" link2="wrist2_Link" reason="Never" />
+  <disable_collisions link1="right_outer_knuckle" link2="wrist3_Link" reason="Never" />
+</robot>

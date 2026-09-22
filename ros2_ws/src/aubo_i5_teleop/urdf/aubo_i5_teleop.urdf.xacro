@@ -1,0 +1,159 @@
+<?xml version="1.0"?>
+<!--
+  Aubo i5 的 ROS 2 描述：官方 URDF + MoveIt 需要的 ee_link + MuJoCo 的 ros2_control 后端。
+
+  为什么要自己包一层：
+  - 官方 aubo_description/urdf/aubo_i5.urdf 没有 ee_link，而 MoveIt 的 SRDF 引用了它
+    （SRDF 里有 ee_link 与 wrist1/2/3_Link 的 disable_collisions），缺了会报错。
+  - ros2_control 的硬件插件要指向 MuJoCo，而不是真机（aubo_driver/AuboHardwareInterface）
+    或 Gazebo（gazebo_ros2_control）。
+  - 官方 inc/aubo_macro.xacro 走的是 ROS 1 + Gazebo Classic 老路径
+    （libgazebo_ros_control.so、transmission_interface/SimpleTransmission），不能直接用于 ROS 2 的 MuJoCo。
+
+  注意：本文件给 MoveIt / ros2_control / RViz 用（运动学、碰撞检查、可视化），
+  物理由 assets/aubo_i5/scene_ros2.xml 那份 MJCF 负责，两者靠关节名对应。
+-->
+<!--
+    name 必须与 SRDF 里的 <robot name="..."> 一致（aubo_moveit_config 的两份 SRDF 都用
+    "aubo_i5_robot"）。不一致时 move_group 会报
+    "Semantic description is not specified for the same robot as the URDF" 并拒绝加载规划组。
+  -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="aubo_i5_robot">
+
+  <xacro:arg name="mujoco_model" default="/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2.xml"/>
+  <xacro:arg name="initial_keyframe" default="ready"/>
+
+  <!-- ============ 官方模型本体 ============ -->
+  <xacro:include filename="$(find aubo_description)/urdf/aubo_i5.urdf"/>
+
+  <!-- ============ ee_link ============
+       逐字复制官方 inc/aubo_macro.xacro 里的定义，保持与 SRDF 一致。
+  -->
+  <joint name="ee_fixed_joint" type="fixed">
+    <parent link="wrist3_Link"/>
+    <child link="ee_link"/>
+    <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 ${pi/2.0}"/>
+  </joint>
+  <link name="ee_link">
+    <collision>
+      <geometry>
+        <box size="0.01 0.01 0.01"/>
+      </geometry>
+      <origin rpy="0 0 0" xyz="-0.01 0 0"/>
+    </collision>
+  </link>
+
+  <!-- ============ AG95 夹爪（代用件）============
+
+       ⚠️ 这是**代用件**：真机上的夹爪是自制的，装配位置未知。
+       AG95 只是先把链路和几何占位，等自制夹爪确定后替换。
+       License: MIT（ian-chuang/dh_gripper_ros 的 ament 移植版，见 ros2_ws/src/dh_ag95_description）
+
+       【挂载变换】`gripper_mount_rpy` 是唯一需要改的地方——自制夹爪到位后只改这一个参数。
+
+       这里 rpy = 0 0 0（恒等）的依据（实测，不是猜）：
+         - AG95 在自身坐标系里沿 +Z 伸出（指尖 z=+0.1345，安装板在 z=0 附近几乎没有负向几何）
+         - 工具轴向的判定：零位下 wrist2_Link→wrist3_Link 方向 = [+0.141 -0.921 -0.363]，
+           而 wrist3_Link 的 Z 轴与该方向点积 = **+1.000**，ee_link 的 Z 轴同样是 **+1.000**
+           → **ee_link 的 +Z 就是工具轴向**，所以 AG95 的 +Z 对齐 ee_link 的 +Z，即恒等旋转。
+
+       ⚠️ 曾经用"离基座最远"当启发式，得出 ee_link 的 X 轴朝外——**那是错的**：
+           那个姿态下臂是弯曲的，"远离基座"并不等于工具轴向。按那个值装配后
+           MoveIt 的碰撞检查报出夹爪与 wrist2/wrist3 干涉最深 25.4 mm，才定位到此错误。
+           教训：工具轴向要用相邻连杆的连线来定，不能用"离基座远近"。
+
+       【相机安装参考帧】保留 `camera_mount_link` 与 `gripper_tip_link`：
+         - `gripper_tip_link` 在两指之间、夹持点位置，将来给 Servo 当 ee_frame_name
+         - `camera_mount_link` 预留给腕部 D405。位姿现在是**占位值**，
+           相机到位后把 `camera_mount_xyz/rpy` 两个参数填成实测值即可。
+  -->
+
+  <xacro:arg name="gripper_mount_xyz" default="0 0 0"/>
+  <xacro:arg name="gripper_mount_rpy" default="0 0 0"/>
+  <xacro:arg name="camera_mount_xyz"  default="0.05 0 0.02"/>
+  <xacro:arg name="camera_mount_rpy"  default="0 0 0"/>
+
+  <xacro:include filename="$(find dh_ag95_description)/urdf/ag95_macro.xacro"/>
+  <xacro:dh_ag95_gripper prefix="" parent="ee_link">
+    <origin xyz="$(arg gripper_mount_xyz)" rpy="$(arg gripper_mount_rpy)"/>
+  </xacro:dh_ag95_gripper>
+
+  <!-- 夹持点：两指中间。数值 = AG95 指尖在其自身坐标系的 Z 位置（0.1345 m）；
+       挂载为恒等旋转，所以就是相对 ag95_body 的纯 Z 偏移。-->
+  <link name="gripper_tip_link"/>
+  <joint name="gripper_tip_joint" type="fixed">
+    <parent link="ag95_body"/>
+    <child link="gripper_tip_link"/>
+    <origin xyz="0 0 0.1345" rpy="0 0 0"/>
+  </joint>
+
+  <!-- 腕部相机安装位（占位，待实测）。挂在夹爪本体上，
+       因为腕部法兰通常已被夹爪占用，且这样视角更贴近夹爪工作区。-->
+  <link name="camera_mount_link"/>
+  <joint name="camera_mount_joint" type="fixed">
+    <parent link="ag95_body"/>
+    <child link="camera_mount_link"/>
+    <origin xyz="$(arg camera_mount_xyz)" rpy="$(arg camera_mount_rpy)"/>
+  </joint>
+
+  <!-- ============ ros2_control：MuJoCo 后端 ============
+       mujoco_ros2_control 把 ros2_control 的关节映射到 MJCF 里的 actuator。
+       MJCF 那份 scene_ros2.xml 里是 6 个 position 执行器，所以这里命令接口用 position。
+       换真机时只需把 <plugin> 改回 aubo_driver/AuboHardwareInterface。
+  -->
+  <!--
+      关节限位在这里显式写成 ±3.04 rad（≈174.2°），与 MJCF 的 joint range 保持一致。
+
+      背景：官方 URDF 把六个关节全写成 ±360°（±6.28319），对真机 i5 不可信——
+      两个第三方 i5 模型（ian-chuang/Manipulator-Mujoco、zyz0721/Auboi5_Scan_Simulator）
+      都用 ±3.04。经用户同意先按 ±174° 设上，**待 Aubo i5 数据手册核实**。
+      这个值影响三处，必须一致：MJCF 的 joint range、这里的命令接口 min/max、
+      以及 config/joint_limits.yaml（MoveIt 用）。
+  -->
+  <xacro:macro name="aubo_joint_iface" params="joint_name">
+    <joint name="${joint_name}">
+      <command_interface name="position">
+        <param name="min">-3.04</param>
+        <param name="max">3.04</param>
+      </command_interface>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+  </xacro:macro>
+
+  <ros2_control name="MujocoSystem" type="system">
+    <hardware>
+      <plugin>mujoco_ros2_control/MujocoSystemInterface</plugin>
+      <param name="mujoco_model">$(arg mujoco_model)</param>
+      <param name="initial_keyframe">$(arg initial_keyframe)</param>
+    </hardware>
+
+    <xacro:aubo_joint_iface joint_name="shoulder_joint"/>
+    <xacro:aubo_joint_iface joint_name="upperArm_joint"/>
+    <xacro:aubo_joint_iface joint_name="foreArm_joint"/>
+    <xacro:aubo_joint_iface joint_name="wrist1_joint"/>
+    <xacro:aubo_joint_iface joint_name="wrist2_joint"/>
+    <xacro:aubo_joint_iface joint_name="wrist3_joint"/>
+
+    <!-- 夹爪：只暴露一个关节。
+         AG95 是四连杆闭链，8 个 revolute 关节实际只有 1 个自由度，靠 tendon + equality 耦合。
+         mujoco_ros2_control 要求 tendon 执行器的名字与某个真实关节同名，
+         所以把 left_outer_knuckle_joint 当作对外的那一个（它的角 = 开合角）。
+         其余手指关节由仿真内部的 equality 约束联动，不暴露给 ros2_control。 -->
+    <joint name="left_outer_knuckle_joint">
+      <command_interface name="position">
+        <param name="min">0.0</param>
+        <param name="max">0.93</param>
+      </command_interface>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+  </ros2_control>
+
+</robot>

@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>aubo_i5_teleop</name>
+  <version>0.1.0</version>
+  <description>
+    Aubo i5 VR 遥操的 bringup 层。
+    自己写描述文件与 launch 的原因：aubo_ros2_driver 自带的 aubo_moveit.launch.py 有两处问题——
+    (1) 它的默认路径要 include 一个不存在的 urdf/&lt;aubo_type&gt;.urdf.xacro；
+    (2) 它额外发了 world-&gt;base_link 的静态 TF，而 URDF 里已经有 world_joint，会冲突。
+    另外本包把 ros2_control 的硬件插件指向 MuJoCo，而不是真机或 Gazebo。
+
+    阶段 3 走 MoveIt Servo 的 **pose tracking**（不是 delta_twist_cmds 流），
+    因此有一个 C++ 节点 src/pose_tracking_node.cpp：它照抄官方
+    moveit_servo 的 pose_tracking_demo.cpp 骨架，去掉其中的 demo 目标发布，
+    改成只跟随外部给的目标位姿。算法本身全部来自 moveit_servo（libpose_tracking.so）。
+  </description>
+  <maintainer email="lcw@todo.todo">lcw</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>moveit_servo</depend>
+  <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
+
+  <exec_depend>aubo_description</exec_depend>
+  <exec_depend>aubo_moveit_config</exec_depend>
+  <exec_depend>mujoco_ros2_control</exec_depend>
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>joint_state_broadcaster</exec_depend>
+  <exec_depend>joint_trajectory_controller</exec_depend>
+  <exec_depend>moveit_ros_move_group</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>xacro</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

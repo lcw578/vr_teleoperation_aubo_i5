@@ -1,0 +1,64 @@
+# MoveIt 的关节限位。
+#
+# 为什么要自己写一份：官方的 aubo_i5.urdf 把六个关节全写成 ±360°（±6.28319 rad），
+# 而经确认后我们按 ±174°（±3.04 rad）使用——必须在这里覆盖，否则 MoveIt 会按 ±360° 规划，
+# 与 MJCF 的物理限位和 ros2_control 的命令接口 min/max 不一致。
+# 三处必须同步：本文件 / scene_aubo_i5.xml 的 joint range / URDF 的 command_interface min,max。
+#
+# ⚠️ ±3.04 rad (≈174.2°) 的来源是两个第三方 i5 模型，**尚未经 Aubo 官方数据手册核实**。
+#
+# 速度与加速度部分沿用官方 aubo_moveit_config/config/joint_limits.yaml，未做改动，
+# 只补了位置限位。
+
+default_velocity_scaling_factor: 1.0
+default_acceleration_scaling_factor: 0.1
+
+joint_limits:
+  foreArm_joint:
+    has_position_limits: true
+    min_position: -3.04
+    max_position: 3.04
+    has_velocity_limits: true
+    max_velocity: 3.15
+    has_acceleration_limits: false
+    max_acceleration: 3.15
+  shoulder_joint:
+    has_position_limits: true
+    min_position: -3.04
+    max_position: 3.04
+    has_velocity_limits: true
+    max_velocity: 3.15
+    has_acceleration_limits: false
+    max_acceleration: 3.15
+  upperArm_joint:
+    has_position_limits: true
+    min_position: -3.04
+    max_position: 3.04
+    has_velocity_limits: true
+    max_velocity: 3.15
+    has_acceleration_limits: false
+    max_acceleration: 3.15
+  wrist1_joint:
+    has_position_limits: true
+    min_position: -3.04
+    max_position: 3.04
+    has_velocity_limits: true
+    max_velocity: 3.2
+    has_acceleration_limits: false
+    max_acceleration: 3.2
+  wrist2_joint:
+    has_position_limits: true
+    min_position: -3.04
+    max_position: 3.04
+    has_velocity_limits: true
+    max_velocity: 3.2
+    has_acceleration_limits: false
+    max_acceleration: 3.2
+  wrist3_joint:
+    has_position_limits: true
+    min_position: -3.04
+    max_position: 3.04
+    has_velocity_limits: true
+    max_velocity: 3.2
+    has_acceleration_limits: false
+    max_acceleration: 3.2

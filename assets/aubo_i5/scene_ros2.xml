@@ -1,0 +1,144 @@
+<mujoco model="aubo_i5_ros2">
+  <!--
+    ROS 2 / mujoco_ros2_control 用的场景包装层。
+    只做四件事，不动 scene_aubo_i5.xml 里的运动学与惯性：
+      1. <option integrator="implicitfast"/> —— 位置执行器较硬，官方 demo 用这个积分器
+      2. <contact><exclude> —— 与 SRDF 的 disable_collisions 对齐，见下
+      3. <actuator> —— 6 个 position 执行器，映射到 ros2_control 的 position 命令接口
+      4. <keyframe> —— 定义一个确定的起始位姿（对应 initial_keyframe 参数）
+    执行器形态抄自官方 demo：
+      mujoco_ros2_control_demos/demo_resources/robot/test_robot.xml
+  -->
+  <include file="scene_aubo_i5.xml"/>
+
+  <!-- ============ 场景层 ============
+       原来这份只有机器人本体（从 URDF 转换而来的产物里没有场景），
+       所以 MuJoCo 里看到的是一片黑、机械臂悬空、没有空间参照。
+       下面这几段照抄官方 demo 的 scene.xml：
+         mujoco_ros2_control_demos/demo_resources/scenes/scene.xml
+       作用分别是：给个天空背景、铺一块带网格线的地面、加方向光、设定初始视角。
+  -->
+  <statistic center="0 0 0.35" extent="1.2"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.1 0.1 0.1" specular="0 0 0"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="120" elevation="-20"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0"
+             width="512" height="3072"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge"
+             rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" markrgb="0.8 0.8 0.8"
+             width="300" height="300"/>
+    <material name="groundplane" texture="groundplane" texuniform="true"
+              texrepeat="8 8" reflectance="0.1"/>
+  </asset>
+
+  <worldbody>
+    <!-- 方向光；否则纯靠 headlight，模型没有立体感 -->
+    <light pos="0 0 1.5" dir="0 0 -1" directional="true"/>
+    <!--
+      地面。放在 z=0（机器人基座所在平面）。
+      contype=1/conaffinity=0 与官方 demo 一致：机械臂会与地面碰撞，
+      这样工作空间的下边界是真实的，符合"从第一天就按真机标准限定工作空间"。
+    -->
+    <geom name="floor" type="plane" size="0 0 0.05" pos="0 0 0"
+          material="groundplane" contype="1" conaffinity="0"/>
+  </worldbody>
+
+  <option integrator="implicitfast"/>
+
+  <contact>
+    <!--
+      来源：aubo_ros2_driver/aubo_moveit_config/config/aubo_i5.srdf 的 12 条 disable_collisions。
+      URDF 的碰撞网格本来就会在相邻连杆的关节处互相重叠，ROS/MoveIt 靠 SRDF 排除，
+      MuJoCo 不知道这件事——不排除的话基座和 shoulder_Link 会持续互相顶（实测重叠 6.5 mm，
+      产生 4 个接触点，把虚假接触力注进物理）。
+      这里排除后，MuJoCo 的自碰撞判断与 MoveIt Servo 用的 SRDF 一致，两边不会打架。
+      SRDF 里的 ee_link 本模型没有，故略去相关 3 条。
+      本模型的基座是挂在 world 上的 geom（转换产物），所以基座那两条写成 world。
+    -->
+    <exclude body1="world"         body2="shoulder_Link"/>   <!-- SRDF: base_link <-> shoulder_Link  Adjacent -->
+    <exclude body1="world"         body2="upperArm_Link"/>   <!-- SRDF: base_link <-> upperArm_Link  Never -->
+    <exclude body1="shoulder_Link" body2="upperArm_Link"/>   <!-- Adjacent -->
+    <exclude body1="shoulder_Link" body2="wrist1_Link"/>     <!-- Never -->
+    <exclude body1="upperArm_Link" body2="foreArm_Link"/>    <!-- Adjacent -->
+    <exclude body1="foreArm_Link"  body2="wrist1_Link"/>     <!-- Adjacent -->
+    <exclude body1="wrist1_Link"   body2="wrist2_Link"/>     <!-- Adjacent -->
+    <exclude body1="wrist1_Link"   body2="wrist3_Link"/>     <!-- Never -->
+    <exclude body1="wrist2_Link"   body2="wrist3_Link"/>     <!-- Adjacent -->
+
+    <!-- --- 以下是 AG95 夹爪内部（照抄 Manipulator-Mujoco 的 ag95.xml）---
+         夹爪相邻连杆在关节处必然重叠，不排除会持续产生虚假接触力。 -->
+    <exclude body1="ag95_base" body2="ag95_left_inner_knuckle"/>
+    <exclude body1="ag95_base" body2="ag95_left_outer_knuckle"/>
+    <exclude body1="ag95_base" body2="ag95_right_inner_knuckle"/>
+    <exclude body1="ag95_base" body2="ag95_right_outer_knuckle"/>
+    <exclude body1="ag95_left_inner_knuckle"  body2="ag95_left_finger"/>
+    <exclude body1="ag95_right_inner_knuckle" body2="ag95_right_finger"/>
+    <!-- 夹爪与手腕：安装板贴在 wrist3_Link 法兰面上（MoveIt 实测 depth=0.0000 贴面），
+         相对位姿全固定，检查无意义。与 SRDF 的对应排除保持一致。 -->
+    <exclude body1="wrist3_Link" body2="ag95_base"/>
+    <exclude body1="wrist3_Link" body2="ag95_left_inner_knuckle"/>
+    <exclude body1="wrist3_Link" body2="ag95_right_inner_knuckle"/>
+    <exclude body1="wrist3_Link" body2="ag95_left_outer_knuckle"/>
+    <exclude body1="wrist3_Link" body2="ag95_right_outer_knuckle"/>
+  </contact>
+
+
+  <!-- ============ AG95 夹爪的物理耦合 ============
+       URDF 表达不了四连杆闭环（解析时会断链，实测 MuJoCo 只解析出 6 个自由度），
+       所以闭环必须在 MJCF 里用 equality 补回来。手法照抄 Manipulator-Mujoco 的 ag95.xml，
+       而且可以直接抄锚点数值——因为两边手指链的 frame 逐字相同（已核对）。
+
+       - <connect>：把 finger 与 inner_knuckle 在它们的共同铰点钉住，闭合四连杆
+       - <joint>：左右两侧外节同步（polycoef="0 1 0 0 0" 即 left = right）
+       - <tendon>：把左右外节合成一个驱动量（各 0.5），于是整只手只需 1 个命令
+  -->
+  <tendon>
+    <fixed name="ag95_split">
+      <joint joint="left_outer_knuckle_joint" coef="0.5"/>
+      <joint joint="right_outer_knuckle_joint" coef="0.5"/>
+    </fixed>
+  </tendon>
+
+  <equality>
+    <connect anchor="-0.020673 0 0.007524" body1="ag95_left_finger"  body2="ag95_left_inner_knuckle"
+             solimp="0.95 0.99 0.001" solref="0.005 1"/>
+    <connect anchor="-0.020673 0 0.007524" body1="ag95_right_finger" body2="ag95_right_inner_knuckle"
+             solimp="0.95 0.99 0.001" solref="0.005 1"/>
+    <joint joint1="left_outer_knuckle_joint" joint2="right_outer_knuckle_joint"
+           polycoef="0 1 0 0 0" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+  </equality>
+
+  <actuator>
+    <!--
+      kp 按关节力矩上限分档（URDF 的 actuatorfrcrange：关节 1-3 为 ±133 N·m，4-6 为 ±13.5 N·m）。
+      官方 demo 用 kp=25000 配 ±1000 N·m 的执行器（比值约 25），此处按同一比值缩放到本机力矩上限。
+      dampratio="1.0" 让 MuJoCo 按关节惯量自动算阻尼（临界阻尼），不用手调 kv。
+      这些是起步值，需要在阶段 2/3 里按跟踪效果调。
+    -->
+    <position name="shoulder_joint" joint="shoulder_joint" kp="25000" dampratio="1.0" ctrlrange="-3.04 3.04"/>
+    <position name="upperArm_joint" joint="upperArm_joint" kp="25000" dampratio="1.0" ctrlrange="-3.04 3.04"/>
+    <position name="foreArm_joint" joint="foreArm_joint" kp="25000" dampratio="1.0" ctrlrange="-3.04 3.04"/>
+    <position name="wrist1_joint" joint="wrist1_joint" kp="2500" dampratio="1.0" ctrlrange="-3.04 3.04"/>
+    <position name="wrist2_joint" joint="wrist2_joint" kp="2500" dampratio="1.0" ctrlrange="-3.04 3.04"/>
+    <position name="wrist3_joint" joint="wrist3_joint" kp="2500" dampratio="1.0" ctrlrange="-3.04 3.04"/>
+    <!-- 夹爪：单自由度。tendon 长度 = 0.5*(左外节+右外节)，与外节角同量纲，所以 ctrl 就是开合角。
+         kp/kv 是起步值——AG95 原模型用 kp=10/kv=0.1（很软），这里加硬一些便于位置跟踪，需按手感调。 -->
+    <!-- 名字必须是**真实关节名**（官方文档：tendon 执行器的 name 要与 ros2_control 里那个可控制关节同名），
+         否则插件启动时报 "Tendon actuator ... has no matching joint" 并直接 FATAL 退出。
+         所以这里用 left_outer_knuckle_joint 当那个"被暴露的关节"，tendon 负责内部耦合。 -->
+    <position name="left_outer_knuckle_joint" tendon="ag95_split" kp="200" kv="5" ctrlrange="0 0.93"/>
+  </actuator>
+
+  <keyframe>
+    <!--
+      起始位姿刻意让肘部弯曲：完全伸直的臂处于奇异位形，Servo 从那里起步会很糟。
+      qpos 与 ctrl 一致，所以启动时执行器不会立刻把臂拉走。
+    -->
+    <key name="ready" qpos="0 -0.4 0.8 0 0.4 0" qvel="0 0 0 0 0 0" ctrl="0 -0.4 0.8 0 0.4 0"/>
+  </keyframe>
+</mujoco>

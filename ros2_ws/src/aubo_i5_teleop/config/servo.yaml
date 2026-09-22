@@ -1,0 +1,98 @@
+# MoveIt Servo 配置（Aubo i5 + AG95）
+#
+# 依据：
+#   - 官方 ROS 2 模板 /opt/ros/humble/share/moveit_servo/config/panda_simulated_config.yaml
+#   - LARA_AUBOi5_AG95 的 lara_moveit_servo/config/joystick_servo_config.yaml
+#     （那是 ROS 1 的，参数名有差异，见下面的对照注释）
+#
+# ⚠️ 与 LARA 那份 ROS 1 配置的三处关键差异：
+#   1. 话题名：ROS 1 是 cmd_vel / cmd_joint；ROS 2 是 ~/delta_twist_cmds / ~/delta_joint_cmds
+#      （~ = servo 节点命名空间，节点默认名 servo_node，所以实际是 /servo_node/delta_twist_cmds）
+#   2. command_out_type：LARA 用 std_msgs/Float64MultiArray（配 JointGroupPositionController）；
+#      我们用 trajectory_msgs/JointTrajectory（配我们的 JTC）
+#   3. is_primary_planning_scene_monitor：ROS 2 新增参数，**必须 false**——
+#      我们的 move_group 才是主 planning scene 持有者，设 true 会两个节点抢
+
+use_gazebo: false
+
+## ---- 传入命令的性质 ----
+# speed_units: 传入的 Twist 直接是 m/s 和 rad/s
+# unitless:    传入的 Twist 当作 [-1,1] 的摇杆量，再乘 scale
+#
+# 这里先用 speed_units —— 命令行验证时"发 0.05 就是 5 cm/s"，好判断对错。
+# 将来接 Quest 时，若映射节点输出的是归一化量，改成 unitless 并调 scale 即可（只改配置）。
+command_in_type: "unitless"
+scale:
+  linear: 0.3       # unitless 模式：输入 1.0 对应 0.3 m/s
+  rotational: 0.5   # 同上
+  joint: 0.5        # 关节增量命令用
+
+## ---- 输出命令的性质 ----
+publish_period: 0.02        # 50 Hz。文档要求 ≥30 Hz；官方 demo 用 0.034(≈29Hz)，LARA 用 0.005(200Hz)
+low_latency_mode: false
+
+command_out_type: std_msgs/Float64MultiArray
+publish_joint_positions: true      # 位置模式：只发位置（我们的 JTC 是 position-only）
+publish_joint_velocities: false   # 关键：改回 false —— 调试时设成 true 后，Servo 一启动机械臂就匀速下降
+publish_joint_accelerations: false
+
+# 输出平滑：Servo 自带 Butterworth 滤波。这一条是应对"动作不平滑导致抖动"的正规手段
+# （HarvestFlex 是通过底层控制器速度模式解决的，我们先用 Servo 的滤波器，等价目的）
+smoothing_filter_plugin_name: "online_signal_smoothing::ButterworthFilterPlugin"
+# ⚠️ Servo **要求**这个插件必须存在（设成 "" 会直接报 "A smoothing plugin is required" 并退出），
+#    所以滤波器不能禁用。头文件说明：系数 < 1.0 会让滤波器不稳定；**系数越小越不平滑**。
+#    这里显式设成 1.0 = 最小平滑，以排除它对输出的影响。
+butterworth_filter_coeff: 1.0
+
+## ---- MoveIt 相关 ----
+move_group_name: manipulator        # 官方驱动的 SRDF 组名（LARA 是 arm）
+planning_frame: world               # 我们的 URDF 里有 world_joint
+
+# ⚠️ 必须 false：move_group 是主 planning scene 源（stage2b 已经在跑 move_group）
+is_primary_planning_scene_monitor: false
+
+## ---- 坐标系 ----
+# ee_frame_name：Servo 用来回报末端位姿的帧。
+# 指向**夹爪尖端**（我们的 manipulator 组 chain 的上端就是它），不是手腕。
+ee_frame_name: gripper_tip_link
+
+# robot_link_command_frame：传入 Twist 在哪个坐标系里解释。
+# world 便于命令行验证（机械臂零位朝上，发 +Z 就是往上）。
+# 接 Quest 时这里大概率要改成 gripper_tip_link（"手柄往前推，机器人往它自己的前方走"，更直观）
+# —— 但那是手感问题，属阶段 4，先不动。
+robot_link_command_frame: base_link
+
+## ---- 停止行为 ----
+incoming_command_timeout: 0.1    # 0.1 s 没收到新命令就停（所以命令行必须持续发，不能只发一条）
+num_outgoing_halt_msgs_to_publish: 4
+
+## ---- 奇异与关节限位 ----
+# 阈值不是抄 panda 的，是按本机实测的条件数分布定的。
+#
+# 实测：在"末端离地>30cm"的合理操作空间里采样 8650 个位姿，雅可比条件数分布为
+#   25% 分位 13.8 | 中位数 21.1 | 75% 分位 36.3 | 95% 分位 164.7 | 99% 分位 788.3
+#
+# 而 panda 的阈值（减速 17 / 急停 30）会挡掉 **62% 的可行位姿**，其中 33% 直接急停——
+# 6-DOF 臂的条件数天然比 7-DOF 高得多（无冗余），照抄 panda 的值会让遥操基本不可用。
+#
+# 现按分布取：减速设在 75% 分位附近，急停设在 95~99% 之间。
+lower_singularity_threshold: 50.0
+hard_stop_singularity_threshold: 200.0
+leaving_singularity_threshold_multiplier: 2.0
+joint_limit_margin: 0.1
+
+## ---- 话题 ----
+cartesian_command_in_topic: ~/delta_twist_cmds
+joint_command_in_topic: ~/delta_joint_cmds
+joint_topic: /joint_states
+status_topic: ~/status
+command_out_topic: /forward_command_controller_position/commands
+
+## ---- 碰撞检查 ----
+# 注意：Servo 的碰撞检查用的是 URDF 的 planning scene，而**地面只在 MJCF 里**，
+# 所以 Servo 看不见地面。实测确认过：命令能把末端推到 z<0，MuJoCo 的地面再顶住它，
+# 结果是关节卡在半路且容易落进奇异位形。**地面必须作为 collision object 加进 planning scene**（待办）。
+check_collisions: true
+collision_check_rate: 10.0
+self_collision_proximity_threshold: 0.005
+scene_collision_proximity_threshold: 0.01

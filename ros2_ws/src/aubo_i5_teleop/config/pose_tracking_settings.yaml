@@ -1,0 +1,48 @@
+#################################
+# PoseTracking 的 PID 参数（pose seeking）
+#
+# 底本：官方同版本发布的
+#   /opt/ros/humble/share/moveit_servo/config/pose_tracking_settings.yaml
+# 但**增益已按实测改过**（见下），其余键与官方一致。
+#
+# 为什么不能照抄增益：官方给 panda 的是比例 1.5、积分 0、微分 0；LARA（同款 Aubo i5 +
+# Servo 的同类先例）用的是比例 500、积分 1、微分 0.1——相差约 300 倍。说明它与具体机器人、
+# 控制器单位、控制频率强相关，必须实测。
+#
+# 实测（2026-09-22，gravcomp + SRDF 修复之后，环境干净、单节点）：
+#   ---- 平移（+z 2 cm/s 走 4 s，看完成度）----
+#     k_p = 1.5，k_i = 0   → 跟随完成度  58%
+#     k_p = 20， k_i = 0   → 跟随完成度 102%
+#     k_p = 100，k_i = 0   → 跟随完成度 100%
+#     k_p = 20， k_i = 1   → 跟随完成度 102%（加积分无额外收益）
+#   ---- 旋转（世界系轴 0.15 rad/s 走 2 s，六个方向）----
+#     angular = 2   → 6/6 方向正确，但幅度只有指令的 ~55%
+#     angular = 20  → 6/6 方向正确，幅度 ~99%
+#     angular = 100 → 6/6 方向正确，幅度 ~100%（无额外收益）
+# 取 k_p = 20、k_i = 0、angular = 20：够用且不必追高。
+# P-only 对匀速目标必有 v/k_p 的稳态滞后——20 在 2 cm/s 下对应约 1 mm、在 0.15 rad/s 下
+# 对应约 7.5 mrad，都可忽略；这正是平移从 58% 变 ~100%、旋转从 ~55% 变 ~99% 的原因。
+#
+# 读取位置：PoseTracking::readROSParams() 以 `servo_parameters->ns + ".x_proportional_gain"`
+# 取参，即参数名是 moveit_servo.x_proportional_gain（本文件的顶层键名由 launch 合并进
+# moveit_servo 命名空间，与官方 launch 一致）。launch 另提供 pid_p / pid_i / pid_angular
+# 覆盖参数便于调参，但增益只在构造时读取，改了必须重启。
+#################################
+
+# Maximum value of error integral for all PID controllers
+windup_limit: 0.05
+
+# PID gains  ← x/y/z 与 angular 的比例增益按上面实测改为 20（其余保持官方值）
+x_proportional_gain: 20.0
+y_proportional_gain: 20.0
+z_proportional_gain: 20.0
+x_integral_gain: 0.0
+y_integral_gain: 0.0
+z_integral_gain: 0.0
+x_derivative_gain: 0.0
+y_derivative_gain: 0.0
+z_derivative_gain: 0.0
+
+angular_proportional_gain: 20.0
+angular_integral_gain: 0.0
+angular_derivative_gain: 0.0

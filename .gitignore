@@ -1,0 +1,24 @@
+# ── 构建产物 ───────────────────────────────────────────────────────
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+
+# ── 外部依赖（不入库，用 deps.repos 声明并固定版本；来源与版本记在 DEPENDENCIES.md）──
+# 为什么这么做：这些是别人的代码，体积大（_official 981M、_refs 186M、
+# src/aubo_ros2_driver 含子模块 396M），而且各有自己的 git 历史。
+# 把它们纳入本仓库没有意义，反而会让 clone 变得无法使用。
+# 正确做法是：本仓库只装我们自己的代码 + 一份可复现的依赖清单。
+_official/
+_refs/
+ros2_ws/src/aubo_ros2_driver/
+ros2_ws/src/mujoco_ros2_control/
+ros2_ws/src/dh_ag95_description/
+
+# ── 临时诊断文件 ──────────────────────────────────────────────────
+# .probe_nograv.xml 是无重力对照实验用的模型副本（诊断"下沉"用的），不属于项目产物
+assets/aubo_i5/.probe_*.xml
+*.tmp
+
+# ── Python / 编辑器杂项 ───────────────────────────────────────────
+__pycache__/
+*.pyc
