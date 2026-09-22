@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>dh_ag95_description</name>
+  <version>0.0.0</version>
+  <description>
+    DH Robotics AG95 夹爪的 URDF 描述（xacro + mesh）。
+    这是 ian-chuang/dh_gripper_ros 的 ament_cmake 移植版：原包是 catkin (ROS 1, 2018)，
+    colcon 无法编译。仅更换构建系统，运动学与几何数据未改动。
+    上游 License: MIT
+  </description>
+  <maintainer email="itchuang@ucdavis.edu">Ian Chuang</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>xacro</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

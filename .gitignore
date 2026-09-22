@@ -12,7 +12,9 @@ _official/
 _refs/
 ros2_ws/src/aubo_ros2_driver/
 ros2_ws/src/mujoco_ros2_control/
-ros2_ws/src/dh_ag95_description/
+# 注意：ros2_ws/src/dh_ag95_description **不排除**——它不是原样依赖，而是
+# 我们把上游 catkin 包移植成 ament_cmake 之后的产物（几何/运动学逐字节未改），
+# 移植这一步 vcs 拉不回来，所以它属于本仓库的代码。
 
 # ── 临时诊断文件 ──────────────────────────────────────────────────
 # .probe_nograv.xml 是无重力对照实验用的模型副本（诊断"下沉"用的），不属于项目产物

@@ -1,0 +1,36 @@
+# 本工作区的外部依赖（vcstool 格式）
+#
+# 用法（在 ros2_ws/src 下执行）：
+#     vcs import < ../../deps.repos
+#     # 然后必须初始化 aubo_ros2_driver 的子模块，否则 aubo_description 是空的：
+#     git -C aubo_ros2_driver submodule update --init aubo_description
+#
+# 注意：vcs 不处理 git 子模块，所以第二步不能省——我们 include 的
+# aubo_description/urdf/aubo_i5.urdf 就在那个子模块里。
+#
+# 版本都固定到具体 commit（而不是分支），保证任何时候拉下来都是我们验证过的那一份。
+# 依赖的用途、是否被我们改过、为什么选这个版本，见 ../DEPENDENCIES.md。
+
+repositories:
+  # 厂家驱动仓库。除了驱动本身，还包含 aubo_description（子模块）、
+  # aubo_moveit_config、aubo_msgs、aubo_dashboard_msgs、ros_joints_plan 等。
+  aubo_ros2_driver:
+    type: git
+    url: https://github.com/AuboRobot/aubo_ros2_driver.git
+    version: 8568407        # 2026-03-13 "Merge pull request #20 from HysteriaC/main"
+
+  # MuJoCo 的 ros2_control 硬件后端（官方 ros-controls 组织）。
+  # 我们用它把 ros2_control 的 position 接口接到 MuJoCo 上。
+  mujoco_ros2_control:
+    type: git
+    url: https://github.com/ros-controls/mujoco_ros2_control.git
+    version: 58f465b        # 2026-09-15 "Add FTS Gravity Compensation Plugin (#308)"，无 tag 可引
+
+  # AG95 夹爪描述的上游（仅参考/比对用；实际使用的是我们移植版，
+  # 见 ros2_ws/src/dh_ag95_description —— 它已入库，不靠这条拉取）。
+  dh_gripper_ros_upstream:
+    type: git
+    url: https://github.com/ian-chuang/dh_gripper_ros.git
+    version: 9a97210        # 2023-09-15 "remove speed"
+    # 注意：这个包是 catkin(ROS 1)，colcon 编不了；我们只取其中的
+    # dh_ag95_description 并移植了构建系统，几何与运动学数据未改动。
