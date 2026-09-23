@@ -143,6 +143,22 @@ def launch_setup(context, *args, **kwargs):
     if pp != "":
         merged["publish_period"] = float(pp)
 
+    # 奇异阈值覆盖（排查"保护性缩放/急停"对跟随的贡献时用；设成很大值即等于关掉保护）
+    for arg, key in (("lower_singularity_threshold", "lower_singularity_threshold"),
+                     ("hard_stop_singularity_threshold", "hard_stop_singularity_threshold")):
+        v = LaunchConfiguration(arg).perform(context)
+        if v != "":
+            merged[key] = float(v)
+
+    ll = LaunchConfiguration("low_latency_mode").perform(context).lower()
+    if ll in ("1", "true"):
+        merged["low_latency_mode"] = True
+    elif ll in ("0", "false"):
+        merged["low_latency_mode"] = False
+
+    # 滤波器系数（节点根命名空间的那一个）
+    bfc = LaunchConfiguration("butterworth_filter_coeff").perform(context)
+
     servo_params = {"moveit_servo": merged}
 
     # ⚠️ 是否把运动学求解器交给 Servo，是一个**会改变控制律**的选择，不是可有可无的配置：
@@ -178,6 +194,10 @@ def launch_setup(context, *args, **kwargs):
             #   官方 launch 没写这一项，我们是仿真时间，不写会直接报
             #   "The end effector pose was not updated in time. Aborting."
             {"use_sim_time": True},
+            # ⚠️ 滤波器的系数由**插件**在节点根命名空间读取（ParamListener 的 prefix 默认为空），
+            #    所以它**不能**放进 moveit_servo 块里——放进去会被静默忽略、实际用默认 1.5。
+            #    默认值 1.5；库限制系数必须 >= 1（<1 会让滤波器不稳定）；越大越平滑、滞后越大。
+            *([{"butterworth_filter_coeff": float(bfc)}] if bfc else []),
         ],
     )
 
@@ -216,6 +236,16 @@ def generate_launch_description():
                                   description="覆盖 publish_period（秒）。它同时是 Servo 输出周期与 "
                                               "PoseTracking 的 PID 循环频率；默认空=用 yaml 的 0.005。"
                                               "排查状态延迟时用（跟随比值 = period/(period+δ)）。"),
+            DeclareLaunchArgument("lower_singularity_threshold", default_value="",
+                                  description="覆盖 lower_singularity_threshold（默认 50）。设很大=关掉奇异降速。"),
+            DeclareLaunchArgument("hard_stop_singularity_threshold", default_value="",
+                                  description="覆盖 hard_stop_singularity_threshold（默认 200）。设很大=关掉奇异急停。"),
+            DeclareLaunchArgument("low_latency_mode", default_value="",
+                                  description="覆盖 low_latency_mode（true/false）。空=用 yaml 值（我们为 false，LARA 为 true）。"),
+            DeclareLaunchArgument("butterworth_filter_coeff", default_value="30.0",
+                                  description="滤波系数（必须在**节点根命名空间**读，故不能放 yaml 的 moveit_servo 块）。"
+                                              "默认 30.0：按 2026-09-23 实测，配合 P=100 时可在 τ 不劣化(0.147 s)的前提下"
+                                              "把超调从 +6.9% 压到 ~0%；空=用插件默认 1.5。"),
             DeclareLaunchArgument("pid_angular", default_value="",
                                   description="覆盖 angular_proportional_gain（调参用，需重启生效）。空 = 用 yaml 值。"),
             DeclareLaunchArgument(

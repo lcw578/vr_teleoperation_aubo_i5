@@ -19,7 +19,17 @@
 #     angular = 2   → 6/6 方向正确，但幅度只有指令的 ~55%
 #     angular = 20  → 6/6 方向正确，幅度 ~99%
 #     angular = 100 → 6/6 方向正确，幅度 ~100%（无额外收益）
-# 取 k_p = 20、k_i = 0、angular = 20：够用且不必追高。
+# 取 k_p = 20、k_i = 0、angular = 20（当时的结论）。
+#
+# ⚠️ 2026-09-23 更正：上面那组是拿"完成度"选的，而完成度**对滞后不敏感**——
+#    所以漏掉了动态响应。改用**阶跃响应**重标（位置模式，每轮先归位、Servo 停着归位）：
+#      P=20  : τ 0.221 s，超调 +3.8%，稳态误差 1.4 mm
+#      P=100 : τ 0.148 s，超调 +6.9%，稳态误差 0.0   ← τ 改善 1.5 倍
+#      P=500 : τ 0.148 s，超调 +8.1%               ← 再提高无收益（τ 在 0.148 s 触底）
+#    τ 在 0.148 s 触底说明**环路速度的上限不在外环增益上**，而在被控对象自身的滞后。
+#    另注：角向仍是 20（未单独扫过）。
+# 最终组合（见下）: P=100 + 滤波系数 30 -> τ 0.147-0.172 s、超调 ~0%、10 cm/s 99%。
+#
 # P-only 对匀速目标必有 v/k_p 的稳态滞后——20 在 2 cm/s 下对应约 1 mm、在 0.15 rad/s 下
 # 对应约 7.5 mrad，都可忽略；这正是平移从 58% 变 ~100%、旋转从 ~55% 变 ~99% 的原因。
 #
@@ -32,10 +42,10 @@
 # Maximum value of error integral for all PID controllers
 windup_limit: 0.05
 
-# PID gains  ← x/y/z 与 angular 的比例增益按上面实测改为 20（其余保持官方值）
-x_proportional_gain: 20.0
-y_proportional_gain: 20.0
-z_proportional_gain: 20.0
+# PID gains  ← x/y/z 比例增益 = 100（按**阶跃响应**标定；见下方 2026-09-23 的 P 扫描）
+x_proportional_gain: 100.0
+y_proportional_gain: 100.0
+z_proportional_gain: 100.0
 x_integral_gain: 0.0
 y_integral_gain: 0.0
 z_integral_gain: 0.0
