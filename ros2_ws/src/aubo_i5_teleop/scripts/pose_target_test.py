@@ -192,6 +192,55 @@ def verdict(cmd_v, v, is_rot):
     return (abs(along) > thr and abs(along) > 2 * perp), along, perp
 
 
+def step_response(node, axis_idx, size, duration, sample_dt=0.005):
+    """给目标位姿一个阶跃，记录末端实际响应，用来表征外环动态。
+
+    返回 (t, pos) 序列（pos 为该轴相对起点的位移）。用于提取：
+    延迟、上升时间、超时量、稳态误差，以及等效时间常数 τ ≈ 上升时间/2.2。
+    理论预期：P-only 外环的 τ ≈ 1/k_p（k_p=20 → 50 ms），这是"跟得多紧"的直接度量。
+    """
+    node.spin(1.2)
+    start = node.ee_pose()
+    if start is None:
+        return None
+    p0, q0 = start
+    target = list(p0)
+    target[axis_idx] = p0[axis_idx] + size
+
+    ts, xs = [], []
+    t0 = time.time()
+    while time.time() - t0 < duration:
+        node.publish_target(target, q0)
+        cur = node.ee_pose()
+        if cur is not None:
+            ts.append(time.time() - t0)
+            xs.append(cur[0][axis_idx] - p0[axis_idx])
+        node.spin(sample_dt)
+    return ts, xs
+
+
+def analyze_step(ts, xs, size):
+    if not ts:
+        return None
+    a = abs(size)
+    def first_above(frac):
+        thr = frac * a
+        for t, x in zip(ts, xs):
+            if (size > 0 and x >= thr) or (size < 0 and x <= -thr):
+                return t
+        return None
+    t10, t90 = first_above(0.1), first_above(0.9)
+    peak = max(xs) if size > 0 else min(xs)
+    overshoot = (peak / size - 1.0) * 100.0
+    final = xs[-1]
+    return {
+        "delay_10": t10, "t90": t90,
+        "rise": (t90 - t10) if (t10 is not None and t90 is not None) else None,
+        "tau_est": ((t90 - t10) / 2.2) if (t10 is not None and t90 is not None) else None,
+        "overshoot_pct": overshoot, "final_err": abs(final - size),
+    }
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--axis", default="z", choices=AXES)
@@ -203,6 +252,9 @@ def main():
     ap.add_argument("--verbose", action="store_true")
     ap.add_argument("--verify-translations", action="store_true")
     ap.add_argument("--verify-rotations", action="store_true")
+    ap.add_argument("--step", type=float, default=None,
+                    help="阶跃响应模式：给目标位姿一个该大小的阶跃（米），记录实际响应对应动态")
+    ap.add_argument("--step-duration", type=float, default=1.5)
     args = ap.parse_args()
 
     rclpy.init()
@@ -214,6 +266,27 @@ def main():
             return 1
 
         results = []
+        if args.step is not None:
+            r = step_response(node, AXES.index(args.axis), args.step, args.step_duration)
+            if r is None:
+                print("  ❌ 取不到位姿")
+                return 1
+            ts, xs = r
+            a = analyze_step(ts, xs, args.step)
+            print("  === %s 轴 阶跃响应：目标跳变 %+.4f m，采样 %d 点（%.1f Hz 量级）==="
+                  % (args.axis, args.step, len(ts), len(ts) / max(1e-9, ts[-1])))
+            print("  延迟(到 10%%) = %s s" % ("%.3f" % a["delay_10"] if a["delay_10"] is not None else "未达到"))
+            if a["rise"] is not None:
+                print("  上升时间(10→90%%) = %.3f s" % a["rise"])
+                print("  等效时间常数 τ ≈ 上升/2.2 = %.3f s   ← 与理论 1/k_p 对比" % a["tau_est"])
+            print("  超调量 = %+.1f%%" % a["overshoot_pct"])
+            print("  稳态误差 = %.4f m（%.1f%% of 阶跃）" % (a["final_err"], 100 * a["final_err"] / abs(args.step)))
+            # 打印一条粗略的响应轨迹，便于人工判读是否振荡
+            step_n = max(1, len(ts) // 12)
+            print("  轨迹(每 %d 点取一点): %s" % (step_n,
+                  " ".join("%.3f" % x for x in xs[::step_n][:14])))
+            return 0
+
         if args.verify_translations or args.verify_rotations:
             is_rot = args.verify_rotations
             val = args.rot_speed if is_rot else args.speed
