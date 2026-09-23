@@ -137,6 +137,12 @@ def launch_setup(context, *args, **kwargs):
         merged["publish_joint_velocities"] = False
         merged["command_out_topic"] = "/forward_command_controller_position/commands"
 
+    # publish_period 同时决定 Servo 的输出周期与 PoseTracking 的 PID 循环频率，
+    # 也是"位置模式跟随比值 = period/(period+δ)"里的那个 period —— 排查状态延迟 δ 时用它做扫描。
+    pp = LaunchConfiguration("publish_period").perform(context)
+    if pp != "":
+        merged["publish_period"] = float(pp)
+
     servo_params = {"moveit_servo": merged}
 
     # ⚠️ 是否把运动学求解器交给 Servo，是一个**会改变控制律**的选择，不是可有可无的配置：
@@ -206,6 +212,10 @@ def generate_launch_description():
                                   description="覆盖 x/y/z 比例增益（调参用，需重启生效）。空 = 用 yaml 值。"),
             DeclareLaunchArgument("pid_i", default_value="",
                                   description="覆盖 x/y/z 积分增益（调参用，需重启生效）。空 = 用 yaml 值。"),
+            DeclareLaunchArgument("publish_period", default_value="",
+                                  description="覆盖 publish_period（秒）。它同时是 Servo 输出周期与 "
+                                              "PoseTracking 的 PID 循环频率；默认空=用 yaml 的 0.005。"
+                                              "排查状态延迟时用（跟随比值 = period/(period+δ)）。"),
             DeclareLaunchArgument("pid_angular", default_value="",
                                   description="覆盖 angular_proportional_gain（调参用，需重启生效）。空 = 用 yaml 值。"),
             DeclareLaunchArgument(
