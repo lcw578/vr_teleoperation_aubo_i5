@@ -21,14 +21,21 @@ use_gazebo: false
 #
 # 这里先用 speed_units —— 命令行验证时"发 0.05 就是 5 cm/s"，好判断对错。
 # 将来接 Quest 时，若映射节点输出的是归一化量，改成 unitless 并调 scale 即可（只改配置）。
-command_in_type: "unitless"
+# ⚠️ 2026-09-23 为"twist 路径的动力学对照"改为 speed_units：
+#    - unitless 下 delta = scale.linear * publish_period * twist（scale.linear=0.3），
+#      即发 0.3 实际只有 0.09 m/s —— 这会让幅度对照整体错 3.33 倍；
+#    - unitless 下任何分量 |值| > 1 会让**整条命令被丢弃**（"Skipping this datapoint"）。
+command_in_type: "speed_units"
 scale:
   linear: 0.3       # unitless 模式：输入 1.0 对应 0.3 m/s
   rotational: 0.5   # 同上
   joint: 0.5        # 关节增量命令用
 
 ## ---- 输出命令的性质 ----
-publish_period: 0.02        # 50 Hz。文档要求 ≥30 Hz；官方 demo 用 0.034(≈29Hz)，LARA 用 0.005(200Hz)
+# ⚠️ 2026-09-23 改为 0.005，与 pose tracking 路径（servo_pose_tracking.yaml）**一致**：
+#    周期不同会让"Servo 每周期前进多少"成为混淆变量，无法与闭环对照。
+#    （原为 0.02/50 Hz：文档要求 ≥30 Hz；官方 demo 0.034；LARA 0.005。）
+publish_period: 0.005
 low_latency_mode: false
 
 command_out_type: std_msgs/Float64MultiArray

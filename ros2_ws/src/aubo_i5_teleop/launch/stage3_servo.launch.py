@@ -64,6 +64,11 @@ def launch_setup(context, *args, **kwargs):
     servo_yaml = load_yaml_abs(os.path.join(teleop_share, "config", "servo.yaml"))
     servo_params = {"moveit_servo": servo_yaml}
 
+    # 滤波器系数：**节点根命名空间**（插件 ParamListener 的 prefix 默认为空），
+    # 放 moveit_servo 块里会被静默忽略。排查"滤波器对命令的衰减 α"时用它做扫描。
+    bfc = LaunchConfiguration("butterworth_filter_coeff").perform(context)
+    extra = [{"butterworth_filter_coeff": float(bfc)}] if bfc else []
+
     kinematics = load_yaml_abs(os.path.join(moveit_share, "config", "kinematics.yaml"))
 
     servo_node = Node(
@@ -76,6 +81,7 @@ def launch_setup(context, *args, **kwargs):
             semantic,
             {"robot_description_kinematics": kinematics},
             {"use_sim_time": True},
+            *extra,
         ],
     )
 
@@ -85,6 +91,8 @@ def launch_setup(context, *args, **kwargs):
 def generate_launch_description():
     return LaunchDescription(
         [
+            DeclareLaunchArgument("butterworth_filter_coeff", default_value="",
+                                  description="覆盖节点根命名空间的滤波系数（默认插件 1.5，>=1）。空=不设。"),
             DeclareLaunchArgument("srdf_file", default_value="teleop.srdf"),
             OpaqueFunction(function=launch_setup),
         ]
