@@ -1,9 +1,12 @@
   <!-- 2026-09-22 变更（本项目特有，注意与生成器不同步）：
-       给全部 13 个刚体加 gravcomp="1"（MuJoCo 的重力补偿）。
+       给全部 13 个刚体加 gravcomp="0.98"（MuJoCo 的重力补偿，取值理由见下）。
        原因：MoveIt Servo 的位置命令是基于**实测状态**构造的（servo_calcs.cpp:738-763），
        于是 ctrl ≈ q，位置执行器的力矩 kp*(ctrl-q) ≈ 0 —— 弹簧被抵消、执行器退化成阻尼器，
        重力无人对抗，机械臂会以约 0.045 rad/s 匀速下坠（实测末端约 6 cm/s）。
        真机的 Aubo 控制器本来就做重力补偿，所以这不是"作弊"，而是把缺失的那一环补上。
+       为什么取 0.98 而不是 1.0：留 2% 重力不补偿，避免把仿真做成"补偿零误差"的理想情形。
+       实测（2026-09-23）：本臂 kp=25000 下，2% 残差的静态下垂仅 2%*τg/kp ≈ 3e-5 rad，
+       对跟踪与增益标定可忽略；要看出差别需把该值降到 0.9 以下。
        实测效果：零误差目标下末端位移 0.406 m → 0.0000 m；方向也随之正确。
        ⚠️ 本文件由 tomato_robot/scripts/aubo_urdf_to_mjcf.py 生成后手工修改；
           重新生成会丢掉这条，需要重新加上。 -->
@@ -53,38 +56,38 @@
   <worldbody>
     <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_gray" mesh="link0_0"/>
     <geom type="mesh" group="3" rgba="0.91 0.52 0.0 1" mesh="link0"/>
-    <body name="shoulder_Link" gravcomp="1" pos="0 0 0.122" quat="0 0 0 1">
+    <body name="shoulder_Link" gravcomp="0.98" pos="0 0 0.122" quat="0 0 0 1">
       <inertial pos="-1e-05 0.001807 -0.013854" quat="0.999902 -0.0139146 -0.000554021 -0.0014145" mass="4.84858" diaginertia="0.011842 0.0118029 0.00810013"/>
       <joint name="shoulder_joint" range="-3.04 3.04" actuatorfrcrange="-80 80" damping="0.1" armature="1.5"/>
       <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_gray" mesh="link1_0"/>
         <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_orange" mesh="link1_1"/>
       <geom type="mesh" group="3" rgba="0.91 0.52 0.0 1" mesh="link1"/>
-      <body name="upperArm_Link" gravcomp="1" pos="0 0.1215 0" quat="0.5 -0.5 -0.5 -0.5">
+      <body name="upperArm_Link" gravcomp="0.98" pos="0 0.1215 0" quat="0.5 -0.5 -0.5 -0.5">
         <inertial pos="0.204 0 0.006603" quat="0.500012 0.500012 0.499988 0.499988" mass="10.8363" diaginertia="0.432805 0.425155 0.026024"/>
         <joint name="upperArm_joint" range="-3.04 3.04" actuatorfrcrange="-80 80" damping="0.1" armature="1.5"/>
         <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_gray" mesh="link2_0"/>
         <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_darkgray" mesh="link2_1"/>
         <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_orange" mesh="link2_2"/>
         <geom type="mesh" group="3" rgba="0.91 0.52 0.0 1" mesh="link2"/>
-        <body name="foreArm_Link" gravcomp="1" pos="0.408 0 0" quat="0 -1 0 0">
+        <body name="foreArm_Link" gravcomp="0.98" pos="0.408 0 0" quat="0 -1 0 0">
           <inertial pos="0.264626 -2e-05 0.093611" quat="0.498564 0.501492 0.499882 0.500057" mass="2.84917" diaginertia="0.065327 0.0646765 0.00363354"/>
           <joint name="foreArm_joint" range="-3.04 3.04" actuatorfrcrange="-60 60" damping="0.1" armature="1.2"/>
           <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_orange" mesh="link3_0"/>
         <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_gray" mesh="link3_1"/>
           <geom type="mesh" group="3" rgba="0.91 0.52 0.0 1" mesh="link3"/>
-          <body name="wrist1_Link" gravcomp="1" pos="0.376 0 0" quat="0 0.707107 0.707107 0">
+          <body name="wrist1_Link" gravcomp="0.98" pos="0.376 0 0" quat="0 0.707107 0.707107 0">
             <inertial pos="3.8e-05 0.011278 -0.001539" quat="0.68759 0.725716 -0.0157544 0.0175555" mass="1.62802" diaginertia="0.00195105 0.00193322 0.00115172"/>
             <joint name="wrist1_joint" range="-3.04 3.04" actuatorfrcrange="-16 16" damping="0.1" armature="0.05"/>
             <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_orange" mesh="link4_0"/>
         <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_gray" mesh="link4_1"/>
             <geom type="mesh" group="3" rgba="0.91 0.52 0.0 1" mesh="link4"/>
-            <body name="wrist2_Link" gravcomp="1" pos="0 0.1025 0" quat="0.707107 -0.707107 0 0">
+            <body name="wrist2_Link" gravcomp="0.98" pos="0 0.1025 0" quat="0.707107 -0.707107 0 0">
               <inertial pos="-3.8e-05 -0.011278 -0.001539" quat="0.68759 0.725716 -0.0157544 0.0175555" mass="1.62802" diaginertia="0.00195105 0.00193322 0.00115172"/>
               <joint name="wrist2_joint" range="-3.04 3.04" actuatorfrcrange="-16 16" damping="0.1" armature="0.05"/>
               <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_orange" mesh="link5_0"/>
         <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_gray" mesh="link5_1"/>
               <geom type="mesh" group="3" rgba="0.91 0.52 0.0 1" mesh="link5"/>
-              <body name="wrist3_Link" gravcomp="1" pos="0 -0.094 0" quat="0.707107 0.707107 0 0">
+              <body name="wrist3_Link" gravcomp="0.98" pos="0 -0.094 0" quat="0.707107 0.707107 0 0">
                 <inertial pos="2.2e-05 0.0006 -0.017081" quat="0.503459 0.496517 -0.496517 0.503459" mass="0.1978" diaginertia="0.000184014 0.000118 0.000111986"/>
                 <joint name="wrist3_joint" range="-3.04 3.04" actuatorfrcrange="-10 10" damping="0.1" armature="0.01"/>
                 <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_gray" mesh="link6_0"/>
@@ -100,25 +103,25 @@
                        而 AG95 的 +Z 是工具轴向、ee_link 的 +Z 也是工具轴向，
                        所以这里绕 Z 转 +90°。
                   -->
-                  <body name="ag95_base" gravcomp="1" pos="0 0 0" quat="0.707107 0 0 0.707107">
+                  <body name="ag95_base" gravcomp="0.98" pos="0 0 0" quat="0.707107 0 0 0.707107">
                     <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="ag95_grey" mesh="ag95_base_link_v"/>
                   <geom type="mesh" group="3" mesh="ag95_base_link_c"/>
                     <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="ag95_black" mesh="ag95_gripper_body_v"/>
                   <geom type="mesh" group="3" mesh="ag95_gripper_body_c"/>
 
-                    <body name="ag95_left_inner_knuckle" gravcomp="1" pos="0.016 -0.0254 0.10586" quat="0.922844 0 0.385173 0">
+                    <body name="ag95_left_inner_knuckle" gravcomp="0.98" pos="0.016 -0.0254 0.10586" quat="0.922844 0 0.385173 0">
                       <inertial pos="-0.00177335 0.0254 0.02895" quat="0.707107 0.707107 0 0" mass="0.0711667" diaginertia="3.7e-05 2.1e-05 1.7e-05"/>
                       <joint name="left_inner_knuckle_joint" type="hinge" range="-0.01 0.94" actuatorfrcrange="-50 50" axis="0 -1 0" damping="0.05" armature="0.01"/>
                       <geom type="mesh" pos="-0.016 0.0254 -0.10586" contype="0" conaffinity="0" group="1" density="0" material="ag95_black" mesh="ag95_inner_knuckle_v"/>
                   <geom type="mesh" pos="-0.016 0.0254 -0.10586" group="3" mesh="ag95_inner_knuckle_c"/>
                     </body>
 
-                    <body name="ag95_left_outer_knuckle" gravcomp="1" pos="0.036673 -0.00875 0.098336" quat="0.924908 0 -0.380191 0">
+                    <body name="ag95_left_outer_knuckle" gravcomp="0.98" pos="0.036673 -0.00875 0.098336" quat="0.924908 0 -0.380191 0">
                       <inertial pos="0.0276785 0.00875 -4.43269e-07" quat="0.5 0.5 0.5 0.5" mass="0.0589066" diaginertia="1.7e-05 1.7e-05 1e-06"/>
                       <joint name="left_outer_knuckle_joint" type="hinge" range="0 0.93" actuatorfrcrange="-50 50" axis="0 -1 0" damping="0.05" armature="0.01"/>
                       <geom type="mesh" pos="-0.036673 0.00875 -0.098336" contype="0" conaffinity="0" group="1" density="0" material="ag95_black" mesh="ag95_outer_knuckle_v"/>
                   <geom type="mesh" pos="-0.036673 0.00875 -0.098336" group="3" mesh="ag95_outer_knuckle_c"/>
-                      <body name="ag95_left_finger" gravcomp="1" pos="0.055 0 0" quat="0.924908 0 0.380191 0">
+                      <body name="ag95_left_finger" gravcomp="0.98" pos="0.055 0 0" quat="0.924908 0 0.380191 0">
                         <inertial pos="-0.0193318 0.00875 0.0203744" quat="0.692932 -0.140875 -0.140875 0.692932" mass="0.0831278" diaginertia="2.03681e-05 1.9782e-05 4.58603e-06"/>
                         <joint name="left_finger_joint" type="hinge" range="-0.01 0.94" actuatorfrcrange="-50 50" axis="0 1 0" damping="0.05" armature="0.01"/>
                         <geom type="mesh" pos="-0.091673 0.00875 -0.098336" contype="0" conaffinity="0" group="1" density="0" material="ag95_black" mesh="ag95_finger_v"/>
@@ -128,19 +131,19 @@
                       </body>
                     </body>
 
-                    <body name="ag95_right_inner_knuckle" gravcomp="1" pos="-0.016 0.0254 0.10586" quat="0 0.385173 0 -0.922844">
+                    <body name="ag95_right_inner_knuckle" gravcomp="0.98" pos="-0.016 0.0254 0.10586" quat="0 0.385173 0 -0.922844">
                       <inertial pos="-0.00177335 0.0254 0.02895" quat="0.707107 0.707107 0 0" mass="0.0711667" diaginertia="3.7e-05 2.1e-05 1.7e-05"/>
                       <joint name="right_inner_knuckle_joint" type="hinge" range="-0.01 0.94" actuatorfrcrange="-50 50" axis="0 -1 0" damping="0.05" armature="0.01"/>
                       <geom type="mesh" pos="-0.016 0.0254 -0.10586" contype="0" conaffinity="0" group="1" density="0" material="ag95_black" mesh="ag95_inner_knuckle_v"/>
                   <geom type="mesh" pos="-0.016 0.0254 -0.10586" group="3" mesh="ag95_inner_knuckle_c"/>
                     </body>
 
-                    <body name="ag95_right_outer_knuckle" gravcomp="1" pos="-0.036673 0.00875 0.098336" quat="0 0.380191 0 0.924908">
+                    <body name="ag95_right_outer_knuckle" gravcomp="0.98" pos="-0.036673 0.00875 0.098336" quat="0 0.380191 0 0.924908">
                       <inertial pos="0.0276785 0.00875 -4.43269e-07" quat="0.5 0.5 0.5 0.5" mass="0.0589066" diaginertia="1.7e-05 1.7e-05 1e-06"/>
                       <joint name="right_outer_knuckle_joint" type="hinge" range="0 0.93" actuatorfrcrange="-50 50" axis="0 -1 0" damping="0.05" armature="0.01"/>
                       <geom type="mesh" pos="-0.036673 0.00875 -0.098336" contype="0" conaffinity="0" group="1" density="0" material="ag95_black" mesh="ag95_outer_knuckle_v"/>
                   <geom type="mesh" pos="-0.036673 0.00875 -0.098336" group="3" mesh="ag95_outer_knuckle_c"/>
-                      <body name="ag95_right_finger" gravcomp="1" pos="0.055 0 0" quat="0.924908 0 0.380191 0">
+                      <body name="ag95_right_finger" gravcomp="0.98" pos="0.055 0 0" quat="0.924908 0 0.380191 0">
                         <inertial pos="-0.0193318 0.00875 0.0203744" quat="0.692932 -0.140875 -0.140875 0.692932" mass="0.0831278" diaginertia="2.03681e-05 1.9782e-05 4.58603e-06"/>
                         <joint name="right_finger_joint" type="hinge" range="-0.01 0.94" actuatorfrcrange="-50 50" axis="0 1 0" damping="0.05" armature="0.01"/>
                         <geom type="mesh" pos="-0.091673 0.00875 -0.098336" contype="0" conaffinity="0" group="1" density="0" material="ag95_black" mesh="ag95_finger_v"/>

@@ -57,6 +57,7 @@ install(
     scripts/servo_twist_test.py
     scripts/add_scene_floor.py
     scripts/pose_target_test.py
+    scripts/go_ready.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
