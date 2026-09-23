@@ -210,11 +210,11 @@ def generate_launch_description():
                                   description="覆盖 angular_proportional_gain（调参用，需重启生效）。空 = 用 yaml 值。"),
             DeclareLaunchArgument(
                 "output_mode",
-                default_value="position",
+                default_value="velocity",
                 choices=["position", "velocity"],
-                description="Servo 的输出形式：position（默认，发位置给 forward_command_controller_position）"
-                            "或 velocity（发速度给 forward_command_controller_velocity）。"
-                            "速度模式需 stage2a 用 arm_control_mode:=velocity 且 mujoco_model:=scene_ros2_velocity.xml。",
+                description="Servo 的输出形式：velocity（默认，2026-09-23 迁移，发速度给 "
+                            "forward_command_controller_velocity）或 position。"
+                            "必须与 stage2a 的 arm_control_mode / mujoco_model 一致。",
             ),
             OpaqueFunction(function=launch_setup),
         ]

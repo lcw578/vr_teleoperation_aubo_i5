@@ -176,16 +176,17 @@ def generate_launch_description():
         [
             DeclareLaunchArgument(
                 "mujoco_model",
-                default_value="/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2.xml",
+                default_value="/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2_velocity.xml",
                 description="传给 URDF 的 MuJoCo 模型路径",
             ),
             DeclareLaunchArgument(
                 "arm_control_mode",
-                default_value="position",
+                default_value="velocity",
                 choices=["position", "velocity"],
-                description="臂的控制器类型：position（默认）或 velocity。"
-                            "速度模式需同时给 mujoco_model:=scene_ros2_velocity.xml，"
-                            "并在 stage3 用 output_mode:=velocity。",
+                description="臂的控制器类型：velocity（默认，2026-09-23 迁移）或 position。"
+                            "三处必须一致：本参数、mujoco_model、以及 stage3 的 output_mode。"
+                            "回退到位置模式：arm_control_mode:=position "
+                            "mujoco_model:=…/scene_ros2.xml，且 stage3 用 output_mode:=position。",
             ),
             OpaqueFunction(function=launch_setup),
         ]
