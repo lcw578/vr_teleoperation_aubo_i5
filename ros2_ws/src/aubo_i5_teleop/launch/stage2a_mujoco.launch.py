@@ -83,7 +83,15 @@ def launch_setup(context, *args, **kwargs):
         package="robot_state_publisher",
         executable="robot_state_publisher",
         output="both",
-        parameters=[robot_description, {"use_sim_time": True}],
+        parameters=[
+            robot_description,
+            {"use_sim_time": True},
+            # ⚠️ 测量仪器问题：RSP 的 publish_frequency 默认 20 Hz，于是 /tf 只有 ~18.5 Hz
+            #    （54 ms 一个样本）。而阶跃响应测量是**读 TF** 的，所以 0.1-0.15 s 量级的
+            #    "延迟"里有相当部分是采样分辨率。提到 200 Hz 让仪器不再成为瓶颈。
+            #    注意：这只影响**测量**；控制回路读的是 /joint_states（166 Hz），不受影响。
+            {"publish_frequency": 200.0},
+        ],
     )
 
     # 先起 joint_state_broadcaster，成功后再起轨迹控制器
