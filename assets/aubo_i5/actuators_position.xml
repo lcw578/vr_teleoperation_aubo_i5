@@ -1,0 +1,28 @@
+<mujoco>
+  <!--
+    臂 + 夹爪的执行器定义 —— **位置模式**（当前默认）。
+
+    为什么单独成文件：位置模式与速度模式的差别只在这一个块里，抽出来之后
+    scene_ros2.xml / scene_ros2_velocity.xml 只差一行 include，臂模型
+    （scene_aubo_i5.xml）完全不重复。
+
+    参数来源与理由（保留自原 scene_ros2.xml 的注释）：
+      kp 按关节力矩上限分档（URDF 的 actuatorfrcrange：关节 1-3 为 ±133 N·m，4-6 为 ±13.5 N·m）。
+      官方 demo 用 kp=25000 配 ±1000 N·m 的执行器（比值约 25），此处按同一比值缩放到本机力矩上限。
+      dampratio="1.0" 让 MuJoCo 按关节惯量自动算阻尼（临界阻尼），不用手调 kv。
+      这些是起步值，需要在阶段 2/3 里按跟踪效果调。
+  -->
+  <actuator>
+    <position name="shoulder_joint" joint="shoulder_joint" kp="25000" dampratio="1.0" ctrlrange="-3.04 3.04"/>
+    <position name="upperArm_joint" joint="upperArm_joint" kp="25000" dampratio="1.0" ctrlrange="-3.04 3.04"/>
+    <position name="foreArm_joint" joint="foreArm_joint" kp="25000" dampratio="1.0" ctrlrange="-3.04 3.04"/>
+    <position name="wrist1_joint" joint="wrist1_joint" kp="2500" dampratio="1.0" ctrlrange="-3.04 3.04"/>
+    <position name="wrist2_joint" joint="wrist2_joint" kp="2500" dampratio="1.0" ctrlrange="-3.04 3.04"/>
+    <position name="wrist3_joint" joint="wrist3_joint" kp="2500" dampratio="1.0" ctrlrange="-3.04 3.04"/>
+    <!-- 夹爪：单自由度。tendon 长度 = 0.5*(左外节+右外节)，与外节角同量纲，所以 ctrl 就是开合角。
+         kp/kv 是起步值——AG95 原模型用 kp=10/kv=0.1（很软），这里加硬一些便于位置跟踪，需按手感调。
+         名字必须是**真实关节名**（官方文档：tendon 执行器的 name 要与 ros2_control 里那个可控制关节同名），
+         否则插件启动时报 "Tendon actuator ... has no matching joint" 并直接 FATAL 退出。 -->
+    <position name="left_outer_knuckle_joint" tendon="ag95_split" kp="200" kv="5" ctrlrange="0 0.93"/>
+  </actuator>
+</mujoco>

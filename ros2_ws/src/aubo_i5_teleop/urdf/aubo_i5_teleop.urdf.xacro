@@ -22,6 +22,10 @@
 
   <xacro:arg name="mujoco_model" default="/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2.xml"/>
   <xacro:arg name="initial_keyframe" default="ready"/>
+  <!-- 臂的命令接口类型：position（默认）或 velocity。
+       必须与 MJCF 的执行器类型、以及被激活的控制器三者一致，
+       否则 mujoco_ros2_control 会在 register_urdf_joints 里抛异常并 abort。 -->
+  <xacro:arg name="arm_control_mode" default="position"/>
 
   <!-- ============ 官方模型本体 ============ -->
   <xacro:include filename="$(find aubo_description)/urdf/aubo_i5.urdf"/>
@@ -112,10 +116,30 @@
   -->
   <xacro:macro name="aubo_joint_iface" params="joint_name">
     <joint name="${joint_name}">
-      <command_interface name="position">
-        <param name="min">-3.04</param>
-        <param name="max">3.04</param>
-      </command_interface>
+      <!-- 命令接口必须与 MJCF 的执行器类型**匹配**，不能两个都声明。
+           实测：声明了 position 而执行器是 <velocity> 时，mujoco_ros2_control 在
+           register_urdf_joints 里直接抛
+             "Position command interface for the joint : <name> is not supported
+              with motor or custom actuator without defining the PIDs"
+           然后 abort。所以由 arm_control_mode 这个 xacro 参数二选一。
+           位置模式限位 ±3.04（≈174.2°，与 MJCF 的 joint range 一致，来源见文件上方注释）；
+           速度模式限位取厂家 joint_limits.yaml 的 max_velocity（3.15 rad/s），
+           与 actuators_velocity.xml 的 ctrlrange 保持一致。 -->
+      <!-- 注意写法：xacro 表达式作用域里没有 arg，必须先用 $(arg ...) 替换成字面量再比较。
+           直接写 ${arm_control_mode == 'velocity'} 会报
+           "when evaluating expression 'arm_control_mode == 'velocity''"。 -->
+      <xacro:if value="${'$(arg arm_control_mode)' == 'velocity'}">
+        <command_interface name="velocity">
+          <param name="min">-3.15</param>
+          <param name="max">3.15</param>
+        </command_interface>
+      </xacro:if>
+      <xacro:unless value="${'$(arg arm_control_mode)' == 'velocity'}">
+        <command_interface name="position">
+          <param name="min">-3.04</param>
+          <param name="max">3.04</param>
+        </command_interface>
+      </xacro:unless>
       <state_interface name="position">
         <param name="initial_value">0.0</param>
       </state_interface>

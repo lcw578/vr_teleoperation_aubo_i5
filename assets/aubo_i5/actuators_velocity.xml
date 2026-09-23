@@ -1,0 +1,42 @@
+<mujoco>
+  <!--
+    臂 + 夹爪的执行器定义 —— **速度模式**（用于"外环跟随跟不上"的排查与速度模式迁移）。
+
+    与 actuators_position.xml 的唯一差别：6 个臂执行器从 <position> 换成 <velocity>；
+    夹爪保持 <position>（夹爪不走 Servo 的流式速度命令）。
+
+    ── kv 是怎么定的（不是随手填的）──────────────────────────────
+    MuJoCo 的 <position> 执行器在 dampratio="1.0" 时，会自己算出一个速度反馈（阻尼）系数，
+    它就存在模型的 biasprm[2] 里。把这几个值**原样拿来当 <velocity> 的 kv**，
+    速度反馈的"权威"就与位置模式**完全等价**——这是从模型里读出来的，不是估的：
+
+        关节             位置执行器实际使用的阻尼 (biasprm[2])  ->  这里取的 kv
+        shoulder_joint            434.8                              435
+        upperArm_joint            841.1                              841
+        foreArm_joint             488.4                              488
+        wrist1_joint               29.3                               29
+        wrist2_joint               30.9                               31
+        wrist3_joint               11.0                               11
+    （读取方法：用 mujoco 加载 scene_ros2.xml，打印 m.actuator_biasprm[k][2] 的负值。
+      注意：用公式 2·sqrt(kp·M_ii) 去推会偏——前两个关节差 50% 左右，
+      因为 MuJoCo 用的是关节自身惯量而非质量矩阵对角元。所以直接读，不要推。）
+
+    ⚠️ 这仍是**起步值**：它只保证"速度反馈权威与位置模式相当"，不保证速度环的带宽/静差合适。
+       与当初的 kp 一样，需要在实测里标定（阶跃/速度扫描）。
+
+    ── ctrlrange 的来源 ────────────────────────────────────────
+    取厂家 aubo_moveit_config/config/joint_limits.yaml 的 max_velocity：
+    关节 1-3 为 3.15 rad/s、4-6 为 3.2 rad/s。这是**有来源的**，不是我们估的。
+    位置模式下 ctrlrange 是位置限位（±3.04，来自 URDF），速度模式下自然要换成速度限位。
+  -->
+  <actuator>
+    <velocity name="shoulder_joint" joint="shoulder_joint" kv="435" ctrlrange="-3.15 3.15"/>
+    <velocity name="upperArm_joint" joint="upperArm_joint" kv="841" ctrlrange="-3.15 3.15"/>
+    <velocity name="foreArm_joint" joint="foreArm_joint" kv="488" ctrlrange="-3.15 3.15"/>
+    <velocity name="wrist1_joint" joint="wrist1_joint" kv="29" ctrlrange="-3.2 3.2"/>
+    <velocity name="wrist2_joint" joint="wrist2_joint" kv="31" ctrlrange="-3.2 3.2"/>
+    <velocity name="wrist3_joint" joint="wrist3_joint" kv="11" ctrlrange="-3.2 3.2"/>
+    <!-- 夹爪：与位置模式完全一致（tendon 执行器，名字必须是真实关节名） -->
+    <position name="left_outer_knuckle_joint" tendon="ag95_split" kp="200" kv="5" ctrlrange="0 0.93"/>
+  </actuator>
+</mujoco>

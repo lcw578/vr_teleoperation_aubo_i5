@@ -33,20 +33,29 @@ from std_msgs.msg import Float64MultiArray
 import tf2_ros
 
 CMD_TOPIC = "/forward_command_controller_position/commands"
+CMD_TOPIC_VEL = "/forward_command_controller_velocity/commands"
 GROUP = ["shoulder_joint", "upperArm_joint", "foreArm_joint",
          "wrist1_joint", "wrist2_joint", "wrist3_joint"]
 # 与 MJCF scene_ros2.xml 的 <key name="ready"> 一致
 READY = [0.0, -0.4, 0.8, 0.0, 0.4, 0.0]
 EE = "gripper_tip_link"
 WORLD = "world"
+# 速度模式归位用的比例系数与速度上限。上限取厂家 joint_limits.yaml 的 max_velocity。
+# ⚠️ 这是**测试工具**里的比例律（把位置误差换成速度命令），不是控制链路的一部分——
+#    和位置模式下"直接发目标位置"是同一性质：只为把机械臂摆到已知位姿。
+VEL_KP = 1.5          # [1/s]：v = VEL_KP * (q_target - q)
+VEL_LIMIT = 3.0       # [rad/s]，低于厂家上限 3.15/3.2，留余量
 
 
 class GoReady(Node):
-    def __init__(self, duration):
+    def __init__(self, duration, mode):
         super().__init__("go_ready")
         self.set_parameters([rclpy.parameter.Parameter("use_sim_time", value=True)])
         self.duration = duration
-        self.pub = self.create_publisher(Float64MultiArray, CMD_TOPIC, 1)
+        self.mode = mode
+        topic = CMD_TOPIC_VEL if mode == "velocity" else CMD_TOPIC
+        self.pub = self.create_publisher(Float64MultiArray, topic, 1)
+        self.topic = topic
         self.buffer = tf2_ros.Buffer()
         self.listener = tf2_ros.TransformListener(self.buffer, self)
         self.js = {}
@@ -73,22 +82,32 @@ def main():
     ap.add_argument("--ready", type=float, nargs=6, default=READY,
                     help="目标关节角（默认= MJCF 的 ready 关键帧）")
     ap.add_argument("--duration", type=float, default=4.0, help="持续发送的时长 [s]")
+    ap.add_argument("--mode", default="position", choices=["position", "velocity"],
+                    help="position=直接发目标位置（默认）；velocity=按位置误差比例下发速度")
     args = ap.parse_args()
 
     rclpy.init()
-    node = GoReady(args.duration)
+    node = GoReady(args.duration, args.mode)
     try:
         node.spin(1.5)
         if not node.js:
             print("❌ 收不到 /joint_states —— stage2a 起了吗？")
             return 1
         q0 = [node.js.get(k, float("nan")) for k in GROUP]
+        print("模式: %s  话题: %s" % (args.mode, node.topic))
         print("发送前: 关节 = %s" % [round(x, 4) for x in q0])
 
         msg = Float64MultiArray()
         msg.data = list(args.ready)
         t0 = time.time()
         while time.time() - t0 < args.duration:
+            if args.mode == "velocity":
+                # v = k*(q_target - q)，逐关节限幅。位置误差收敛后速度自然趋 0。
+                data = []
+                for k, tgt in zip(GROUP, args.ready):
+                    e = tgt - node.js.get(k, tgt)
+                    data.append(max(-VEL_LIMIT, min(VEL_LIMIT, VEL_KP * e)))
+                msg.data = data
             node.pub.publish(msg)
             node.spin(0.05)
         node.spin(1.5)

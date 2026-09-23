@@ -113,7 +113,7 @@
            polycoef="0 1 0 0 0" solimp="0.95 0.99 0.001" solref="0.005 1"/>
   </equality>
 
-    <include file="actuators_position.xml"/>
+    <include file="actuators_velocity.xml"/>
 
   <keyframe>
     <!--

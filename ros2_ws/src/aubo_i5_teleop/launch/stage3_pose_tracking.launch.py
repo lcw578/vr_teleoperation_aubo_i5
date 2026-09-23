@@ -121,6 +121,22 @@ def launch_setup(context, *args, **kwargs):
             for k in keys:
                 merged[k] = float(v)
 
+    # 输出模式：位置（默认）或速度。
+    # 速度模式只需改这三项——**Servo 侧不用改代码**：
+    # servo_calcs.cpp 的 Float64MultiArray 分支是 `if (positions) ... else if (velocities)`，
+    # 关掉位置、打开速度，它自然就把速度数组发出去。
+    # 注意：速度值来自 applyJointUpdate 里对位置命令做差分再除以 publish_period，
+    # 所以平滑滤波器仍然在通路上（这一点与位置模式一致）。
+    output_mode = LaunchConfiguration("output_mode").perform(context).lower()
+    if output_mode == "velocity":
+        merged["publish_joint_positions"] = False
+        merged["publish_joint_velocities"] = True
+        merged["command_out_topic"] = "/forward_command_controller_velocity/commands"
+    else:
+        merged["publish_joint_positions"] = True
+        merged["publish_joint_velocities"] = False
+        merged["command_out_topic"] = "/forward_command_controller_position/commands"
+
     servo_params = {"moveit_servo": merged}
 
     # ⚠️ 是否把运动学求解器交给 Servo，是一个**会改变控制律**的选择，不是可有可无的配置：
@@ -192,6 +208,14 @@ def generate_launch_description():
                                   description="覆盖 x/y/z 积分增益（调参用，需重启生效）。空 = 用 yaml 值。"),
             DeclareLaunchArgument("pid_angular", default_value="",
                                   description="覆盖 angular_proportional_gain（调参用，需重启生效）。空 = 用 yaml 值。"),
+            DeclareLaunchArgument(
+                "output_mode",
+                default_value="position",
+                choices=["position", "velocity"],
+                description="Servo 的输出形式：position（默认，发位置给 forward_command_controller_position）"
+                            "或 velocity（发速度给 forward_command_controller_velocity）。"
+                            "速度模式需 stage2a 用 arm_control_mode:=velocity 且 mujoco_model:=scene_ros2_velocity.xml。",
+            ),
             OpaqueFunction(function=launch_setup),
         ]
     )

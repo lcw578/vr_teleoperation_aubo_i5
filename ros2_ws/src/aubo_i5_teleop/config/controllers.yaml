@@ -25,8 +25,14 @@ controller_manager:
 
     # 这是**厂家原配置里就有**的控制器（我当初写这份配置时删掉了它）。
     # MoveIt Servo 是"高频流式位置命令"，本来就该发给这种控制器，而不是 JTC——
-    # JTC 是给 action 式轨迹跟踪用的，实测它不执行每一条流式消息（Servo 命令 161.7mm，机械臂只走 13mm）。
+    # JTC 是给 action 式轨迹跟踪用的。
     forward_command_controller_position:
+      type: forward_command_controller/ForwardCommandController
+
+    # 速度模式的对应控制器：同一个包，只换 interface_name。
+    # 与位置控制器**互斥**——mujoco_ros2_control 对命令接口类型是互斥处理的，
+    # 两个同时激活会让后者覆盖前者，所以由 stage2a 的启动参数决定 spawn 哪一个。
+    forward_command_controller_velocity:
       type: forward_command_controller/ForwardCommandController
 
     gripper_controller:
@@ -69,3 +75,17 @@ forward_command_controller_position:
       - wrist2_joint
       - wrist3_joint
     interface_name: position
+
+# 速度模式用。Float64MultiArray 里就是 6 个关节速度 [rad/s]。
+# 关节顺序必须与上面完全一致（与 forward_command_controller_position 同理：
+# 数组没有关节名，顺序由这里的列表隐含决定）。
+forward_command_controller_velocity:
+  ros__parameters:
+    joints:
+      - shoulder_joint
+      - upperArm_joint
+      - foreArm_joint
+      - wrist1_joint
+      - wrist2_joint
+      - wrist3_joint
+    interface_name: velocity

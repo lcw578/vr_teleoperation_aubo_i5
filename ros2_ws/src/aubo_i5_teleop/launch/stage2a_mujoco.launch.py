@@ -56,6 +56,11 @@ def launch_setup(context, *args, **kwargs):
             " ",
             "mujoco_model:=",
             LaunchConfiguration("mujoco_model"),
+            " ",
+            # 命令接口类型必须与 MJCF 的执行器类型一致，否则 mujoco_ros2_control 会在
+            # register_urdf_joints 里抛异常并 abort（实测过）。
+            "arm_control_mode:=",
+            LaunchConfiguration("arm_control_mode"),
         ]
     )
     robot_description = {
@@ -108,12 +113,22 @@ def launch_setup(context, *args, **kwargs):
         output="both",
     )
 
-    # Servo 的输出目标：厂家原配置里的流式位置控制器
+    # 臂的控制器：位置或速度，二选一。
+    # 为什么必须二选一：mujoco_ros2_control 对命令接口类型是**互斥**处理的
+    # （mujoco_system_interface.cpp：激活 position 就打印
+    #  "position control enabled (velocity, effort disabled)"，激活 velocity 反之），
+    # 所以两个都 spawn 只会让后激活的覆盖前者，行为不可预期。
+    # 选哪个由 arm_control_mode 参数决定；速度模式还需配套
+    #   mujoco_model:=.../scene_ros2_velocity.xml
+    # 且 stage3 用 output_mode:=velocity。
+    arm_control_mode = LaunchConfiguration("arm_control_mode").perform(context).lower()
+    arm_controller = ("forward_command_controller_velocity" if arm_control_mode == "velocity"
+                      else "forward_command_controller_position")
     fwd_spawner = Node(
         package="controller_manager",
         executable="spawner",
         arguments=[
-            "forward_command_controller_position",
+            arm_controller,
             "--controller-manager", "/controller_manager",
             "--param-file", controllers_file,
         ],
@@ -163,6 +178,14 @@ def generate_launch_description():
                 "mujoco_model",
                 default_value="/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2.xml",
                 description="传给 URDF 的 MuJoCo 模型路径",
+            ),
+            DeclareLaunchArgument(
+                "arm_control_mode",
+                default_value="position",
+                choices=["position", "velocity"],
+                description="臂的控制器类型：position（默认）或 velocity。"
+                            "速度模式需同时给 mujoco_model:=scene_ros2_velocity.xml，"
+                            "并在 stage3 用 output_mode:=velocity。",
             ),
             OpaqueFunction(function=launch_setup),
         ]
