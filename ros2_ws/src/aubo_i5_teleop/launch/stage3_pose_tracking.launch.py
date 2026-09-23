@@ -242,10 +242,11 @@ def generate_launch_description():
                                   description="覆盖 hard_stop_singularity_threshold（默认 200）。设很大=关掉奇异急停。"),
             DeclareLaunchArgument("low_latency_mode", default_value="",
                                   description="覆盖 low_latency_mode（true/false）。空=用 yaml 值（我们为 false，LARA 为 true）。"),
-            DeclareLaunchArgument("butterworth_filter_coeff", default_value="30.0",
+            DeclareLaunchArgument("butterworth_filter_coeff", default_value="1.5",
                                   description="滤波系数（必须在**节点根命名空间**读，故不能放 yaml 的 moveit_servo 块）。"
-                                              "默认 30.0：按 2026-09-23 实测，配合 P=100 时可在 τ 不劣化(0.147 s)的前提下"
-                                              "把超调从 +6.9% 压到 ~0%；空=用插件默认 1.5。"),
+                                              "默认 1.5 = 插件默认值。2026-09-23 实测：速度模式下系数 30 会让环路进入"
+                                              "极限环（命令长期饱和在 ±3.15 rad/s、末端 ~25 Hz 抖动），系数 1.5 安静；"
+                                              "代价是平滑变弱。扫描见 config/pose_tracking_settings.yaml 的注释。"),
             DeclareLaunchArgument("pid_angular", default_value="",
                                   description="覆盖 angular_proportional_gain（调参用，需重启生效）。空 = 用 yaml 值。"),
             DeclareLaunchArgument(
