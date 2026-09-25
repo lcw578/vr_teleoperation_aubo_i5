@@ -30,6 +30,9 @@ clutch_mapper_node（/mock_vr/pose + /mock_vr/joy，100 Hz），把映射层的
     本节点 Shift/Z 只发单 tick 按键脉冲，映射器/夹爪 FSM 检测上升沿。
   · buttons: [0]=离合（电平，按住为 1） [1]=夹爪（上升沿脉冲）
              [2]=缩放切换（上升沿脉冲）
+             [3]=会话暂停/恢复（上升沿脉冲，session_manager 消费）
+             [4]=结束当前录制段（上升沿脉冲，session_manager 消费）
+  键位补充：P=会话暂停/恢复  Esc=结束当前录制段（session_manager.py）
 """
 import sys
 import time
@@ -99,6 +102,10 @@ class MockVR(Node):
         self._clutch_level = 0                      # 脚本模式下的持久离合电平
         self._pulse_grip = False                    # 夹爪脉冲（单 tick）
         self._pulse_scale = False                   # 缩放脉冲（单 tick）
+        self._pulse_pause = False                   # 会话暂停/恢复脉冲（单 tick）
+        self._pulse_stop = False                    # 会话结束段脉冲（单 tick）
+        self._prev_p = False
+        self._prev_esc = False
         self._prev_shift = False
         self._prev_z = False
         self._script = self._load(script) if script else None
@@ -141,10 +148,18 @@ class MockVR(Node):
             self._pulse_scale = True
         elif k == "z" and not self._prev_z:
             self._pulse_grip = True
+        elif k == "p" and not self._prev_p:
+            self._pulse_pause = True
+        elif k == "esc" and not self._prev_esc:
+            self._pulse_stop = True
         if k == "shift":
             self._prev_shift = True
         if k == "z":
             self._prev_z = True
+        if k == "p":
+            self._prev_p = True
+        if k == "esc":
+            self._prev_esc = True
 
     def _off_key(self, key):
         k = self._keyname(key)
@@ -155,6 +170,10 @@ class MockVR(Node):
             self._prev_shift = False
         if k == "z":
             self._prev_z = False
+        if k == "p":
+            self._prev_p = False
+        if k == "esc":
+            self._prev_esc = False
 
     # ---------- 脚本 ----------
     def _load(self, path):
@@ -228,10 +247,14 @@ class MockVR(Node):
         joy = Joy()
         joy.buttons = [clutch,
                        1 if self._pulse_grip else 0,
-                       1 if self._pulse_scale else 0]
+                       1 if self._pulse_scale else 0,
+                       1 if self._pulse_pause else 0,
+                       1 if self._pulse_stop else 0]
         self.pub_joy.publish(joy)
         self._pulse_grip = False        # 脉冲只保持一个 tick
         self._pulse_scale = False
+        self._pulse_pause = False
+        self._pulse_stop = False
 
         self._n += 1
         if self._n % (int(RATE_HZ) * 10) == 0:

@@ -53,7 +53,7 @@ cleanup_stack() {
   local pats=("stage2a_mujoco.launch.py" "stage2b_moveit.launch.py" \
               "stage3_pose_tracking.launch.py" "add_scene_floor.py" \
               "go_ready.py" "servo_interface.py" "servo_pose_tracking" \
-              "multi_camera_renderer.py" \
+              "multi_camera_renderer.py" "session_manager.py" \
               "move_group" "ros2_control_node" "rviz2")
   for pat in "${pats[@]}"; do
     for p in $(pgrep -f "$pat"); do kill -TERM "$p" 2>/dev/null; done
@@ -145,6 +145,11 @@ echo "########## 1.5/3 起三路虚拟相机渲染节点（阶段 B）##########
 # （venv python 自带 mujoco 3.12.0 与仿真同版；节点内部自设 MUJOCO_GL=egl）
 "$PY" scripts/multi_camera_renderer.py > ${LOG}_cams.log 2>&1 &
 sleep 2
+
+echo "########## 1.6/3 起会话管理节点（录制状态机，IDLE 起步）##########"
+# P 键（joy[3]）=开始/暂停/恢复录制段；Esc（joy[4]）=结束当前段。袋落 /data/rosbags/
+"$PY" scripts/session_manager.py > ${LOG}_session.log 2>&1 &
+sleep 1
 
 echo "########## 2/3 起 stage2b + 归位 + 演示场景 planning scene ##########"
 setsid ros2 launch aubo_i5_teleop stage2b_moveit.launch.py > ${LOG}_2b.log 2>&1 &

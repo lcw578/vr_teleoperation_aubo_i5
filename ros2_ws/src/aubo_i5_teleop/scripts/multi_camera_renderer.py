@@ -32,6 +32,11 @@ os.environ.setdefault("MUJOCO_GL", "egl")   # 必须在 import mujoco 之前
 
 import numpy as np
 
+try:
+    import cv2
+except ImportError:
+    cv2 = None  # JPEG 流不可用时退化为仅 raw（selftest 不需要 cv2）
+
 SCENE = "/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2_demo.xml"
 RATE_HZ = 30.0
 
@@ -159,7 +164,7 @@ def main():
 
     import rclpy
     from rclpy.node import Node
-    from sensor_msgs.msg import CameraInfo, Image, JointState
+    from sensor_msgs.msg import CameraInfo, CompressedImage, Image, JointState
 
     rclpy.init()
 
@@ -174,6 +179,10 @@ def main():
                 self.pubs[n] = (
                     self.create_publisher(Image, f"/camera/{n}/image_rect_color", 1),
                     self.create_publisher(CameraInfo, f"/camera/{n}/camera_info", 1),
+                    # JPEG 压缩流（录制进袋的主通道：3 路合计 ~15MB/s，sqlite3 写入安全；
+                    # raw 流保留供 rviz/调试，不入袋）
+                    self.create_publisher(CompressedImage,
+                                          f"/camera/{n}/image_rect_color/compressed", 1),
                 )
             self.latest_stamp = None
             self.create_subscription(JointState, "/joint_states", self._on_js, 10)
@@ -202,6 +211,15 @@ def main():
                 msg.step = 3 * w
                 msg.data = img.tobytes()
                 self.pubs[n][0].publish(msg)
+                # JPEG 压缩流（质量 85：对策略输入 224x224 无感的损失）
+                ok, buf = cv2.imencode(".jpeg", img,
+                                       [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+                if ok:
+                    cmsg = CompressedImage()
+                    cmsg.header = msg.header
+                    cmsg.format = "jpeg"
+                    cmsg.data = buf.tobytes()
+                    self.pubs[n][2].publish(cmsg)
                 info = self.infos[n]
                 info.header.stamp = self.latest_stamp
                 self.pubs[n][1].publish(info)
