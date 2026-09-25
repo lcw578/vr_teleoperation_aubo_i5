@@ -91,7 +91,7 @@ PID 的误差恒等于 Δ，对臂的真实位置是盲的（静止无保持力�
 | 位置/姿态容差 | 0.01 m / 0.1 rad | LARA 先例（非官方 demo 的 0.001/0.01） |
 | TARGET_POSE_TIMEOUT | 1.0 s | 断流停机的保险（已实测） |
 | 奇异阈值 | 50 降速 / 200 急停 | **我们自己标定的**；与离线 cond 指标一致（减速≈96、停≈379）；VR 阶段可重调 |
-| joint_limits.yaml 速度 | ⚠️ 3.15/3.2 **超厂商 2.618/3.142**，未修；接口层 v_max 部分兜底 | 开放项 |
+| joint_limits.yaml 速度 | **2.618 / 3.142**（关节 1–3 / 4–6，厂商手册）；被 stage2b 与 stage3 同时加载。加速度为死配置（has_acceleration_limits: false，手册无此规格） | 2026-09-25 修正 |
 
 **参数修改规则**（踩过的坑）：三处默认必须一起翻（stage2a 控制模式 / mujoco_model、stage3
 output_mode）；gains 只在构造时读取，**改了必须重启 stage3**；go_ready 必须在 stage3 停止时跑
@@ -217,13 +217,21 @@ P06–P08（cond 65–128）整定过程出现 `奇异降速→离开奇异降�
 1. 🔲 **VR 输入链路验证**——vr-teleop-kit relay（FastAPI+WebRTC）+ Quest 3 浏览器从未在本机跑过；oculus_reader（2023 APK）只做兜底。**最大未知数。**
 2. 🔲 **映射层**——ClutchPoseMapper（clutch + rot/pos reach limit 0.6 rad / 0.25 m）适配到 /target_pose；没有它没有 VR 遥操，没有 reach limit 就没有操作者保险。
 3. 🔲 **视觉反馈**——相机未集成（camera_mount_link 占位）。仿真可先用 viewer / WebRTC 喂渲染画面；**真机前必须有相机方案**。
-4. 🔲 sine/latency 的 go_to_pose **静默失败**——基准与请求位姿差超容差应打警告（rz 轮 66 mm 偏差就是这样溜进去的）。
-5. 🔲 **规划场景缺 chassis/platform_column**——MJCF 有、Servo 碰撞检查不知道；基座附近/后方会穿模。
-6. 🔲 joint_limits.yaml 3.15/3.2 → 厂商 2.618/3.142（或书面豁免）。
-7. 🔲 夹爪端到端（扳机→gripper_controller→肌腱执行器 ctrl 语义实测）。
+4. ✅ ~~sine/latency 静默失败~~（2026-09-25 修：go_to_pose 返回偏差 >5 mm 即打 ⚠️，标明数据基准）。
+5. ✅ ~~规划场景缺 chassis/platform_column~~（2026-09-25 修：add_scene_floor.py 发布三个物体
+   floor/chassis/platform_column，尺寸与 MJCF 逐字一致，现场验证在场景中且不影响现有位姿——
+   P01/P02 survey 静止无警告。注意：moveit_msgs 的物体位姿存在**顶层 pose**，
+   primitive_poses 是形状相对位姿——查询场景时两个都要看）。
+6. ✅ ~~joint_limits 超厂商~~（2026-09-25 修：速度 2.618/3.142 对齐手册；加速度是死配置并已注明）。
+7. ✅ ~~夹爪端到端~~（2026-09-25 验证：/gripper_controller/commands → position 肌腱执行器
+   kp=200，ctrl **0=张开、0.93=闭合**，0.9→knuckle 0.9000、回 0→0.0000，链路无打架。
+   抓真实物体的握力/滑移验证留给 VR 阶段）。
+7a. ✅ 排查中顺带发现并修复：① run_bench.sh 起栈前自动 colcon build（install 曾落后于源）；
+   ② stage3 launch 的 docstring 仍写着加载 panda demo 配置——实际从未加载（panda 的
+   17/30 奇异阈值与 panda_hand 帧都是那文件的），已改为描述真实合并的两个 yaml。
 8. ⚠️ rz 偏航体验（运动学，非缺陷）；大范围换构型属于规划器职责（move_group/OMPL 在、执行链故意断开）。
 9. 🔲 **sim-to-real**：真机前硬关卡——P=30 余量、断流行为、lag_max、幅值比全部要重测。
-10. 🔲 git 远端备份（本次解决，见 §9）。
+10. ✅ git 远端（github.com/lcw578/vr_teleoperation_aubo_i5，SSH；改完代码记得 push）。
 
 ---
 
