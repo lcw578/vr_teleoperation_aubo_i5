@@ -27,6 +27,7 @@ D405 特殊处理：腕部相机必须跟随手臂运动，但上游机器人文
 import argparse
 import os
 import sys
+import time
 
 os.environ.setdefault("MUJOCO_GL", "egl")   # 必须在 import mujoco 之前
 
@@ -170,7 +171,7 @@ def main():
 
     import rclpy
     from rclpy.node import Node
-    from sensor_msgs.msg import CameraInfo, CompressedImage, Image, JointState
+    from sensor_msgs.msg import CameraInfo, CompressedImage, JointState
 
     rclpy.init()
 
@@ -183,17 +184,17 @@ def main():
             self.pubs = {}
             for n, (w, h, _, fid) in CAMERAS.items():
                 self.pubs[n] = (
-                    self.create_publisher(Image, f"/camera/{n}/image_rect_color", 1),
-                    self.create_publisher(CameraInfo, f"/camera/{n}/camera_info", 1),
-                    # JPEG 压缩流（录制进袋的主通道：3 路合计 ~15MB/s，sqlite3 写入安全；
-                    # raw 流保留供 rviz/调试，不入袋）
+                    # ⚠️ 只发 JPEG 压缩流（录制主通道）。raw Image（720p 每帧 2.7MB）
+                    #    实测把 tick 拖到 287ms（30Hz→3.5Hz 的根因）：rclpy 的 Python
+                    #    发布路径序列化+分片扛不住 4.5MB/tick。压缩流 ~15MB/s 无压力。
+                    #    rviz/rqt_image_view 直接订 /compressed 话题即可。
                     self.create_publisher(CompressedImage,
                                           f"/camera/{n}/image_rect_color/compressed", 1),
+                    self.create_publisher(CameraInfo, f"/camera/{n}/camera_info", 1),
                 )
             self.latest_stamp = None
             self.create_subscription(JointState, "/joint_states", self._on_js, 10)
             self.timer = self.create_timer(1.0 / RATE_HZ, self._tick)
-            self.frame_count = 0
             self.get_logger().info(
                 f"三路虚拟相机渲染中 @{RATE_HZ:.0f}Hz（scene={args.scene}）")
 
@@ -207,31 +208,19 @@ def main():
             imgs = self.rig.render_all()
             for n, img in imgs.items():
                 h, w, _ = img.shape
-                msg = Image()
-                msg.header.stamp = self.latest_stamp
-                msg.header.frame_id = CAMERAS[n][3]
-                msg.height = h
-                msg.width = w
-                msg.encoding = "rgb8"
-                msg.is_bigendian = 0
-                msg.step = 3 * w
-                msg.data = img.tobytes()
-                self.pubs[n][0].publish(msg)
-                # JPEG 压缩流（质量 85：对策略输入 224x224 无感的损失）
                 ok, buf = cv2.imencode(".jpeg", img,
                                        [int(cv2.IMWRITE_JPEG_QUALITY), 85])
-                if ok:
-                    cmsg = CompressedImage()
-                    cmsg.header = msg.header
-                    cmsg.format = "jpeg"
-                    cmsg.data = buf.tobytes()
-                    self.pubs[n][2].publish(cmsg)
+                if not ok:
+                    continue
+                cmsg = CompressedImage()
+                cmsg.header.stamp = self.latest_stamp
+                cmsg.header.frame_id = CAMERAS[n][3]
+                cmsg.format = "jpeg"
+                cmsg.data = buf.tobytes()
+                self.pubs[n][0].publish(cmsg)
                 info = self.infos[n]
                 info.header.stamp = self.latest_stamp
                 self.pubs[n][1].publish(info)
-            self.frame_count += 1
-            if self.frame_count % (RATE_HZ * 10) == 0:
-                self.get_logger().info(f"已发布 {self.frame_count} 帧三路图像")
 
     node = MultiCameraNode()
     try:
