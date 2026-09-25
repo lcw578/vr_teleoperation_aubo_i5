@@ -67,6 +67,14 @@ def launch_setup(context, *args, **kwargs):
         "robot_description": ParameterValue(robot_description_content, value_type=str)
     }
 
+    # ⚠️ 2026-09-24 试过再否决：曾把位置环交给 mujoco_ros2_control 的内置 PID
+    #   （config/mujoco_pid.yaml）。它的误差是 `command − measured`，而 Servo 的
+    #   command = measured + Δ → **error ≡ Δ**，与被控对象实际位置无关：
+    #   静止时输出 0（没有保持力矩、漂到哪都看不见），运动时积分持续累积。
+    #   实机实测 wrist3 归位残差 13.6→24.5 mrad（不可重复），而位置执行器+伺服接口层是 0.00000。
+    #   所以位置环由"伺服接口层（scripts/servo_interface.py）+ <position> 执行器"承担。
+    #   mujoco_pid.yaml 与 scripts/pid_gain_calib.py 保留备查，不在链路上。
+
     # mujoco_ros2_control 自带的节点（不是 controller_manager 的标准 ros2_control_node）
     control_node = Node(
         package="mujoco_ros2_control",
@@ -184,17 +192,19 @@ def generate_launch_description():
         [
             DeclareLaunchArgument(
                 "mujoco_model",
-                default_value="/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2_velocity.xml",
+                default_value="/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2.xml",
                 description="传给 URDF 的 MuJoCo 模型路径",
             ),
             DeclareLaunchArgument(
                 "arm_control_mode",
-                default_value="velocity",
+                default_value="position",
                 choices=["position", "velocity"],
-                description="臂的控制器类型：velocity（默认，2026-09-23 迁移）或 position。"
+                description="臂的控制器类型：position（默认，2026-09-24 改回）或 velocity。"
+                            "为什么是 position：本款机械臂不支持速度控制（厂家驱动的速度命令接口是死壳，"
+                            "write() 只调位置型 Servoj），位置模式是与真机一致的唯一路线。"
                             "三处必须一致：本参数、mujoco_model、以及 stage3 的 output_mode。"
-                            "回退到位置模式：arm_control_mode:=position "
-                            "mujoco_model:=…/scene_ros2.xml，且 stage3 用 output_mode:=position。",
+                            "切到速度模式（仅作对照，非默认）：arm_control_mode:=velocity "
+                            "mujoco_model:=…/scene_ros2_velocity.xml，且 stage3 用 output_mode:=velocity。",
             ),
             OpaqueFunction(function=launch_setup),
         ]

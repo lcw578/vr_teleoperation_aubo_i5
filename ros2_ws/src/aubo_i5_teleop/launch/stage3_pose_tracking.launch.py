@@ -135,7 +135,14 @@ def launch_setup(context, *args, **kwargs):
     else:
         merged["publish_joint_positions"] = True
         merged["publish_joint_velocities"] = False
-        merged["command_out_topic"] = "/forward_command_controller_position/commands"
+        # ⚠️ 位置模式下 Servo 的输出**不能**直接发给控制器，要先过"伺服接口层"
+        #    （scripts/servo_interface.py）。原因：Servo 的流是 `实测 + Δθ(单周期)`，
+        #    锚在实测位置上，位置执行器的弹簧永远只被压一个周期、误差建不起来，
+        #    实测速度增益只有 0.140–0.753；把同一串增量搬到绝对命令上则变成 1.000。
+        #    这一步等价于厂家 servoj 的"速度前馈"那一环，不是我们发明的控制律。
+        #    （2026-09-24 曾改用 mujoco_ros2_control 的内置 PID 来承担，已否决：
+        #      它的 error ≡ Δ、与实际位置无关 → 静止无保持力矩、运动时积分冲到限幅。）
+        merged["command_out_topic"] = "/servo_position_stream"
 
     # publish_period 同时决定 Servo 的输出周期与 PoseTracking 的 PID 循环频率，
     # 也是"位置模式跟随比值 = period/(period+δ)"里的那个 period —— 排查状态延迟 δ 时用它做扫描。
@@ -201,7 +208,24 @@ def launch_setup(context, *args, **kwargs):
         ],
     )
 
-    return [pose_tracking_node]
+    nodes = [pose_tracking_node]
+    if output_mode != "velocity":
+        # 位置模式下叠加"伺服接口层"：把 Servo 的"实测+增量"流积分成绝对位置命令，
+        # 再发给 forward_command_controller_position（它订阅自己的 ~/commands 话题）。
+        nodes.append(Node(
+            package="aubo_i5_teleop",
+            executable="servo_interface.py",
+            name="servo_interface",
+            output="screen",
+            parameters=[{
+                "input_topic": "/servo_position_stream",
+                "output_topic": "/forward_command_controller_position/commands",
+                "lag_max": 0.15,   # 2026-09-24 与 servo_interface.py 默认一起从 0.3 收紧（见该文件头的说明）
+                "use_sim_time": True,
+            }],
+        ))
+
+    return nodes
 
 
 def generate_launch_description():
@@ -251,11 +275,12 @@ def generate_launch_description():
                                   description="覆盖 angular_proportional_gain（调参用，需重启生效）。空 = 用 yaml 值。"),
             DeclareLaunchArgument(
                 "output_mode",
-                default_value="velocity",
+                default_value="position",
                 choices=["position", "velocity"],
-                description="Servo 的输出形式：velocity（默认，2026-09-23 迁移，发速度给 "
-                            "forward_command_controller_velocity）或 position。"
-                            "必须与 stage2a 的 arm_control_mode / mujoco_model 一致。",
+                description="Servo 的输出形式：position（默认，2026-09-24 改回，发位置给 "
+                            "forward_command_controller_position）或 velocity。"
+                            "为什么是 position：本款机械臂不支持速度控制（厂家驱动的速度接口是死壳），"
+                            "位置模式与真机一致。必须与 stage2a 的 arm_control_mode / mujoco_model 一致。",
             ),
             OpaqueFunction(function=launch_setup),
         ]

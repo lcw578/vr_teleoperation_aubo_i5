@@ -58,6 +58,7 @@ install(
     scripts/add_scene_floor.py
     scripts/pose_target_test.py
     scripts/go_ready.py
+    scripts/servo_interface.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

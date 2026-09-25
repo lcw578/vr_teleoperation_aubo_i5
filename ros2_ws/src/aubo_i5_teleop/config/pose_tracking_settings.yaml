@@ -64,6 +64,18 @@
 windup_limit: 0.05
 
 # PID gains  ← x/y/z 比例增益 = 30（速度模式，按**稳态是否静止**标定；见上方 09-23 二次更正）
+# ⚠️ 2026-09-25 P 扫描（20/30/40，每档三张表 + 20 mm 阶跃探针，FK 通道）后定为 30：
+#    · 延迟：正弦跟随 113 ms（P20）→ 83 ms（P30）→ 67 ms（P40）；起始延迟 32→30→27 ms。
+#    · P30：survey 8/8 静止、零接触、阶跃 0% 超调、|cmd−q|≤0.087（钳位未触发）——全绿。
+#    · P40：survey/sine 看着正常，但 20 mm 阶跃**超调 638–722%**、关节峰值速度 2.25–2.47 rad/s
+#      （逼近厂商 2.618 限值）、1.07 s 断流后冻结在离目标 11–28 mm 处——高增益 + ~57 ms
+#      有效回路延迟已到稳定边界，**否决**。P30 距该边界还有一倍余量，真机前不再上调。
+#    · angular 同步取 30。**2026-09-25 晚补齐角向建表**（--axis rx/ry/rz，10°，0.1–1 Hz，
+#      三个位姿）：rx/ry 全绿（幅值比 0.96–1.00、滞后恒定 0.078–0.087 s，与线向同水平）；
+#      rz（世界系偏航）在 P02/P03 有真实降级（1 Hz 幅值比 0.85/0.58），根因是**腕型运动学**：
+#      绕世界 z 的关节成本是 rx/ry 的 3–8 倍（‖q̇‖/rad/s：P01 3.1、P02 5.1、P03 8.4），
+#      88–95% 压在 wrist1+wrist3——构型性质，非调参缺陷，真机预计同样存在。
+#      （rz@P03 那行的基准偏了 66 mm——当轮穿越未到位，数据作废，但不影响上述结论。）
 x_proportional_gain: 30.0
 y_proportional_gain: 30.0
 z_proportional_gain: 30.0
@@ -74,6 +86,6 @@ x_derivative_gain: 0.0
 y_derivative_gain: 0.0
 z_derivative_gain: 0.0
 
-angular_proportional_gain: 20.0
+angular_proportional_gain: 30.0
 angular_integral_gain: 0.0
 angular_derivative_gain: 0.0

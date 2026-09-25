@@ -48,8 +48,16 @@ from shape_msgs.msg import SolidPrimitive
 FLOOR_ID = "floor"
 HALF = 2.0          # 4×4 m
 THICK = 0.2         # 厚 0.2 m
-TOP_Z = -0.03       # 上表面高度：必须比 scene_collision_proximity_threshold(0.02) 更低，
-                    # 否则机器人与地面恒在阈值内，Servo 会永久降速/急停。
+# ⚠️ 上表面高度必须与 MJCF 的地板高度联动，否则 Servo 会看见一块"幽灵地板"：
+#    MJCF 的地板在 assets/aubo_i5/scene_ros2.xml（2026-09-24 起是 z=-1.2，
+#    代表真机基座装在升降平台上、地面在下方 1.2 m）。这里再低 3 cm：
+#      低于 scene_collision_proximity_threshold(0.02)，否则机器人与地面恒在阈值内，
+#      Servo 会永久降速/急停。
+#    2026-09-24 踩过一次：MJCF 地板降到 -1.2 而这里还是 -0.03 → 规划场景里多出一块
+#    高 1.17 m 的幽灵地板，机械臂一往下走就报 `floor, foreArm_Link 碰撞` 并急停，
+#    表现为"机械臂拒绝运动"与阶跃响应剧烈振荡（碰撞急停反复开合）。
+#    **改 MJCF 地板时必须同步改这个值。**
+TOP_Z = -1.23
 
 
 class FloorPublisher(Node):

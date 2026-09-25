@@ -37,7 +37,11 @@ CMD_TOPIC_VEL = "/forward_command_controller_velocity/commands"
 GROUP = ["shoulder_joint", "upperArm_joint", "foreArm_joint",
          "wrist1_joint", "wrist2_joint", "wrist3_joint"]
 # 与 MJCF scene_ros2.xml 的 <key name="ready"> 一致
-READY = [0.0, -0.4, 0.8, 0.0, 0.4, 0.0]
+# ⚠️ 2026-09-24 换过：旧值 [0.0, -0.4, 0.8, 0.0, 0.4, 0.0] 的末端距基座 0.890 m（≈满臂展），
+# 处在侧前方的伸直角；而任务区在正前方 700–944 mm。实测从旧 home **走不进任务区**
+# （P01 只走一半、P02 报碰撞降速）。新值与 assets/aubo_i5/scene_ros2.xml 的 ready 关键帧
+# **必须保持一致**，否则启动位姿与归位目标会打架。
+READY = [-1.089254, -0.802598, 1.308255, 0.588418, 0.324607, -0.704605]
 EE = "gripper_tip_link"
 WORLD = "world"
 # 速度模式归位用的比例系数与速度上限。上限取厂家 joint_limits.yaml 的 max_velocity。
