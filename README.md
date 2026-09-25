@@ -252,10 +252,13 @@ $PY scripts/verify_traversal.py --pose P02             # 单条穿越复现
 
 1. **relay**：vr-teleop-kit 的 FastAPI+WebSocket 中继 + WebRTC 视频轨，Quest 浏览器 WebXR
    （免 APK/logcat；oculus_reader 的 2023 APK 只做兜底）。从未在本机验证——第一步。
-2. **映射层**：ClutchPoseMapper（slipping clutch；rot_reach_limit 0.6 rad / pos_reach_limit
-   0.25 m）适配为 `/target_pose` 发布者。硬约束：发布 >10 Hz（incoming_command_timeout 0.1 s）、
-   只发小的可独立成立的安全增量（断流=走完最后一个目标）、旋转建议映射到**工具轴参考**
-   （世界系偏航在本臂腕型下成本 3–8×，实测 P02/P03 @1 Hz 降级 0.85/0.58）。
+2. **映射层**：✅ 已完成（2026-09-25，头显未到先用 Mock 验证）。
+   `mock_vr_node.py`（键盘 WASD+QE 平移 / UO-IK-JL 自系旋转 / 空格离合 /
+   Shift 缩放 / Z 夹爪；或 `--script` 回放）→ `clutch_mapper_node.py`
+   （离合 + 接合轴对齐 + 滑移 reach limit 0.6 rad / 0.25 m + 0.3 s 断流自动脱离）
+   → `/target_pose`。验收：`scripts/vr_mock_acceptance.py` 11 项判据连续两次全过
+   （工具自系旋转 79° 漂移 0.5 mm、释放冻结 0.00 mm、切档零跳变、夹爪并行）。
+   硬约束保留：发布 >10 Hz、只发小的可独立成立的安全增量。
 3. **视觉反馈**：仿真期可用 viewer / relay 的 WebRTC 喂渲染画面；**真机前必须有相机方案**
    （URDF 已留 `camera_mount_link`，值为占位）。
 4. 端到端叠加延迟预估：控制链 83 ms + VR 传输 20–60 ms ≈ 110–150 ms（待实测）。

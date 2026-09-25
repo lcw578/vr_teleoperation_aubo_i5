@@ -216,7 +216,13 @@ P06–P08（cond 65–128）整定过程出现 `奇异降速→离开奇异降�
 ## 8. 开放项与已知限制（按优先级）
 
 1. 🔲 **VR 输入链路验证**——vr-teleop-kit relay（FastAPI+WebRTC）+ Quest 3 浏览器从未在本机跑过；oculus_reader（2023 APK）只做兜底。**最大未知数。**
-2. 🔲 **映射层**——ClutchPoseMapper（clutch + rot/pos reach limit 0.6 rad / 0.25 m）适配到 /target_pose；没有它没有 VR 遥操，没有 reach limit 就没有操作者保险。
+2. ✅ **映射层**（2026-09-25 完成）——ClutchPoseMapper 移植（17 项测试）+
+   三个节点：`mock_vr_node.py`（键盘/脚本 100 Hz 假头显）、`clutch_mapper_node.py`
+   （离合状态机 + 接合轴对齐 + 0.3 s 断流自动脱离）、`gripper_fsm_node.py`
+   （开/闭两状态 + 斜率）。验收 `scripts/vr_mock_acceptance.py` 连续两次
+   11/11 判据全过且逐位可复现：工具自系旋转 79° 位置漂移 0.5 mm（不画大圆）、
+   释放/断流冻结 0.00 mm、切档跳变 ≤1.2 mm、夹爪并行无干涉、|cmd−q| ≤0.017。
+   待头显：把 mock 换成 relay 适配器，映射器不动。
 3. 🔲 **视觉反馈**——相机未集成（camera_mount_link 占位）。仿真可先用 viewer / WebRTC 喂渲染画面；**真机前必须有相机方案**。
 4. ✅ ~~sine/latency 静默失败~~（2026-09-25 修：go_to_pose 返回偏差 >5 mm 即打 ⚠️，标明数据基准）。
 5. ✅ ~~规划场景缺 chassis/platform_column~~（2026-09-25 修：add_scene_floor.py 发布三个物体
