@@ -1,6 +1,11 @@
 # aubo_i5_teleop
 
-Aubo i5 + AG95 夹爪的 ROS 2 遥操 bringup 层。阶段 1/2 已验收，阶段 3（Servo）待做。
+Aubo i5 + AG95 夹爪的 ROS 2 遥操 bringup 层。
+
+> **状态（2026-09-25）**：阶段 1/2/3 全部完成并标定（P=30 基线、三张表、断流安全）。
+> 项目级文档见仓库根目录 **[README.md](../../../README.md)**（架构与用法）与
+> **[BASELINE.md](../../../BASELINE.md)**（正式基线数字）。本文件只保留包内文件的
+> 设计说明与 launch 理由。
 
 ## 为什么不直接用官方 `aubo_moveit.launch.py`
 
