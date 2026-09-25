@@ -552,6 +552,12 @@ def sine(node, poses, args):
         if got is None:
             print("%s：❌ 走不到该位姿，跳过" % ps["name"])
             continue
+        if got[1] > 0.005:
+            # ⚠️ 2026-09-25 补：go_to_pose 超时/重试耗尽时**返回当前位置而不报错**，
+            #    sine 曾在偏差 66 mm 的错误基准上把一整段测量测完（rz@P03）。
+            #    基准与请求位姿差超过 2 mm 容差的 2.5 倍就必须让读数的人知道。
+            print("%s：⚠️ 未到达请求位姿（差 %.1f mm）——以下数字在该偏差基准上测得，"
+                  "对比其它位姿前先看这条" % (ps["name"], got[1] * 1000))
         base_p, base_r = got[0], tgt.pose.orientation
         if rot:
             print("── %s ──  基准末端 (%.4f, %.4f, %.4f)，绕**世界** %s 轴正弦 A=%.1f°"
@@ -653,6 +659,9 @@ def latency(node, poses, args):
         if got is None:
             print("%-22s ❌ 走不到该位姿" % ps["name"])
             continue
+        if got[1] > 0.005:
+            print("%-22s ⚠️ 未到达请求位姿（差 %.1f mm）——延迟数字在该偏差基准上测得"
+                  % (ps["name"], got[1] * 1000))
         base_p, base_r = got[0], tgt.pose.orientation
         node.status_hist.clear()
         ees, _ = measure_window(node, tgt, 1.5, log=True)

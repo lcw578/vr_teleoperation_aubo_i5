@@ -72,11 +72,9 @@
          立柱顶端止于 z=-0.005（比基座底面低 5 mm）：必须有这个小间隙，否则基座网格
          与立柱重叠会形成**永久接触**。
 
-         ⚠️ 已知的不一致（记在案）：MoveIt 的 planning scene 里**没有**这两块
-         （add_scene_floor.py 只加地板）。任务区里的位姿都在基座正前方 700–944 mm，
-         不会碰到立柱，所以目前不影响；但**如果以后要测靠近基座/后方的姿态，
-         必须把这个结构也加进 planning scene**，否则会出现"物理挡住、Servo 看不见"的错配
-         （这正是幽灵地板那次的同一类问题）。 -->
+         ⚠️ 2026-09-25 已解决此前记录的不一致：底盘与立柱**也已加进 MoveIt 的 planning
+         scene**（add_scene_floor.py 同步发布三个物体，全尺寸=这里的半尺寸×2）。
+         改这里的尺寸/位置时必须同步改 add_scene_floor.py 的 OBJECTS 表。 -->
     <geom name="chassis" type="box" size="0.65 0.42 0.245" pos="0 0 -0.955"
           rgba="0.25 0.25 0.28 1" contype="1" conaffinity="0"/>
     <geom name="platform_column" type="box" size="0.125 0.125 0.3525" pos="0 0 -0.3575"

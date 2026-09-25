@@ -1,11 +1,14 @@
 """阶段 3（新路线）：MoveIt Servo 的 pose tracking 节点。
 
 与官方示例的对应关系：
-  参数装配方式照抄 /opt/ros/humble/share/moveit_servo/launch/pose_tracking_example.launch.py
-  ——它把 **两个 yaml 合并进同一个 moveit_servo 命名空间**：
+  官方 pose_tracking_example.launch.py 把两个 yaml 合并进同一个 moveit_servo 命名空间：
       ParameterBuilder("moveit_servo").yaml("config/pose_tracking_settings.yaml")
                                         .yaml("config/panda_simulated_config_pose_tracking.yaml")
-  这里用等价的字典合并实现（我们的其它 launch 也是这个写法，不引入 launch_param_builder 依赖）。
+  ——注意第二个是 **panda demo 的参数文件**（panda_link0/panda_hand、奇异阈值 17/30 等），
+  我们**不加载它**（其中任何键都会污染我们的配置）。这里合并的是我们自己的两份：
+      config/pose_tracking_settings.yaml（PID 增益等）
+      config/servo_pose_tracking.yaml   （Servo 主体：帧名、阈值 50/200、话题）
+  用字典合并实现（不引入 launch_param_builder 依赖），servo_cfg 在后、同名键它赢。
   因为参数名是 `moveit_servo.<键>`（launch_ros 会把嵌套字典按 "." 扁平化），
   PID 参数（x_proportional_gain 等）和 Servo 参数共用这个命名空间。
 

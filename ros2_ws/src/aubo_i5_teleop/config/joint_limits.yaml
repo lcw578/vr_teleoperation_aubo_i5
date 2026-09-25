@@ -7,8 +7,12 @@
 #
 # ⚠️ ±3.04 rad (≈174.2°) 的来源是两个第三方 i5 模型，**尚未经 Aubo 官方数据手册核实**。
 #
-# 速度与加速度部分沿用官方 aubo_moveit_config/config/joint_limits.yaml，未做改动，
-# 只补了位置限位。
+# 速度限位（2026-09-25 修正）：原来是官方 aubo_moveit_config 的 3.15/3.2——**超出厂商手册**。
+# 按 AUBO-i5 & CB4 手册 V4.5.11（已入库）改为：关节 1-3 = 150°/s = 2.618 rad/s，
+# 关节 4-6 = 180°/s = 3.142 rad/s，与 servo_interface.py 的 v_max 一致。
+# 本文件被 stage2b（move_group）和 stage3（Servo 的 robot_description_planning）同时加载。
+# 加速度：has_acceleration_limits: false → 下面的 max_acceleration 是死配置（未生效），
+# 厂商手册也没有加速度规格，故保留原值并在此说明，不冒充有出处。
 
 default_velocity_scaling_factor: 1.0
 default_acceleration_scaling_factor: 0.1
@@ -19,46 +23,46 @@ joint_limits:
     min_position: -3.04
     max_position: 3.04
     has_velocity_limits: true
-    max_velocity: 3.15
+    max_velocity: 2.618
     has_acceleration_limits: false
-    max_acceleration: 3.15
+    max_acceleration: 2.618
   shoulder_joint:
     has_position_limits: true
     min_position: -3.04
     max_position: 3.04
     has_velocity_limits: true
-    max_velocity: 3.15
+    max_velocity: 2.618
     has_acceleration_limits: false
-    max_acceleration: 3.15
+    max_acceleration: 2.618
   upperArm_joint:
     has_position_limits: true
     min_position: -3.04
     max_position: 3.04
     has_velocity_limits: true
-    max_velocity: 3.15
+    max_velocity: 2.618
     has_acceleration_limits: false
-    max_acceleration: 3.15
+    max_acceleration: 2.618
   wrist1_joint:
     has_position_limits: true
     min_position: -3.04
     max_position: 3.04
     has_velocity_limits: true
-    max_velocity: 3.2
+    max_velocity: 3.142
     has_acceleration_limits: false
-    max_acceleration: 3.2
+    max_acceleration: 3.142
   wrist2_joint:
     has_position_limits: true
     min_position: -3.04
     max_position: 3.04
     has_velocity_limits: true
-    max_velocity: 3.2
+    max_velocity: 3.142
     has_acceleration_limits: false
-    max_acceleration: 3.2
+    max_acceleration: 3.142
   wrist3_joint:
     has_position_limits: true
     min_position: -3.04
     max_position: 3.04
     has_velocity_limits: true
-    max_velocity: 3.2
+    max_velocity: 3.142
     has_acceleration_limits: false
-    max_acceleration: 3.2
+    max_acceleration: 3.142

@@ -38,6 +38,15 @@ source /opt/ros/humble/setup.bash
 source "$WS/install/setup.bash"
 cd "$PKG" || exit 1
 
+# ⚠️ 每次起栈前强制重编译（约 10 s）：本包的 launch/脚本/config 是普通拷贝安装，
+#    手改源文件后忘了 colcon build 就会带着旧参数跑（2026-09-25 审计发现 install 里
+#    pose_tracking_settings.yaml 落后于源目录）。宁可多花 10 秒。
+echo "########## 0/4 重编译（防 install 与源目录脱节）##########"
+( cd "$WS" && colcon build --packages-select aubo_i5_teleop \
+    --cmake-args -DCMAKE_BUILD_TYPE=Release > /tmp/bench_prebuild.log 2>&1 ) \
+  || { echo "❌ 编译失败，见 /tmp/bench_prebuild.log"; exit 1; }
+source "$WS/install/setup.bash"
+
 wait_controller() {           # $1 = 控制器名
   for _ in $(seq 1 60); do
     if ros2 control list_controllers 2>/dev/null \
