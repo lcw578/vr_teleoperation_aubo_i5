@@ -8,8 +8,30 @@
 |---|---|---|
 | `scene_aubo_i5.xml` | **忠实版**：官方 URDF 转换产物，只改了 mesh 路径 | ❌ 无执行器 |
 | `scene_ros2.xml` | **ROS 2 用版**：`<include>` 上面那份，加执行器/排除/起始位姿 | ✅ |
+| `scene_ros2_velocity.xml` | 同上，但执行器换成 `<velocity>`（**当前默认**，见 `actuators_velocity.xml`） | ✅ |
+| ~~`scene_aubo_i5_armB.xml`~~ | ⚠️ **实验变体，不是模型**：把 armature 机械替换成厂家 `inertia` 字段，仅用于 armature A/B 对照实验 | 实验用 |
+| ~~`scene_ros2_velocity_armB.xml`~~ | ⚠️ 同上（指向 armB 的场景层） | 实验用 |
+
+> `armB` 两个文件只服务于 [armature A/B 对照实验](#关节阻尼与-armature)（结论：维持 `equa_inertia`）。
+> **不要拿它们当模型基准**，也不要让任何 launch 默认指向它们。要复现实验：
+> `python3 scripts/armature_ab_offline.py --fine`。
 
 `scene_ros2.xml` 是给 `mujoco_ros2_control` 用的入口（`<param name="mujoco_model">`）。它不改动 `scene_aubo_i5.xml` 里的任何运动学与惯性参数——**动力学模型仍然来自官方 URDF**。
+
+## 模型正确性验证（独立于生成器）
+
+生成器（`aubo_urdf_to_mjcf.py`）本身不构成验证——它和自己的输出同源。
+`ros2_ws/src/aubo_i5_teleop/scripts/verify_model_vs_urdf.py` 做**独立对照**：让 MuJoCo
+重新解析厂家 URDF，再与我们的 MJCF 在若干随机位形下比运动学与质量矩阵。实测（2026-09-24）：
+
+| 检查 | 偏差 |
+|---|---|
+| body 世界位置 / 姿态 | ~1e-16 / ~1e-15（机器精度）→ 运动学完全一致 |
+| 六连杆质量和 | 21.987890 vs 厂家 21.987854 kg（我们文件 6 位有效数字的舍入） |
+| 质量矩阵 M(q) | 绝对 ~1e-6，相对 ~4e-7 → 惯量（含质心与主轴）一致 |
+
+> `base_link` 的 1.53902 kg 未进入动力学：两边都把它当静基座（厂家 `world_joint` 是固定关节，
+> MuJoCo 把固定关节的子连杆并入父体）。这是正确的，不是缺项。
 
 ## 来源
 
@@ -92,13 +114,43 @@ print('ncon =', d.ncon, '(应为 0)')
 
 > 注意最后一项：MoveIt 的限位来自 `joint_limits.yaml`，而官方那份**只写了速度、没有位置限位**，所以必须用本工程自己那份，否则 MoveIt 会退回 URDF 的 ±360°。
 
-### 关节阻尼与 armature：0 → 0.1
+### 关节阻尼与 armature
 
-原来六个关节的 `damping=0`、`armature=0`。**硬的位置执行器配零阻尼容易震**，官方 demo 的关节也带 `damping` 和 `frictionloss`。现按 `Auboi5_Scan_Simulator` 的取值设为 `damping="0.1" armature="0.1"`。
+**阻尼 `damping=0.1`：非厂家值**（厂家 `<property damping="0">` 是"电机侧无被动弹簧/阻尼"）。取 0.1 是参照第三方 `Auboi5_Scan_Simulator` 的值，理由是**硬的位置执行器配零阻尼容易震**，官方 demo 的关节也带 `damping`。这是调参起点，不是标定值。
 
-这两个是**调参起点**，不是标定值，手感调优阶段可能需要改。
+**armature `1.5/1.5/1.2/0.05/0.05/0.01`：厂家值，逐关节等于 URDF `<property equa_inertia="...">`。**（本 README 早先写的"armature=0.1（第三方经验值）"是**旧状态，已作废**。）
 
-> 附注：官方 URDF 的每个关节其实带 `<property inertia="2.0" damping="0" motor_constant="8.72" ratio="121"/>`——**有转子惯量和减速比**，理论上可以算出真实的 armature（反射惯量 = J×N²）。但 `inertia="2.0"` 的单位不明（按 SI 算得 29282 kg·m²，明显不对），**单位不查清就不能用**，所以先用经验值。
+> 附注：厂家每个关节的 `<property>` 同时给了**两个**惯量字段与电机参数：
+> ```
+> <property inertia="2.027236783" damping="0" stiffness="0" offset="0"
+>           motor_constant="8.72" ratio="121" protect_max_torque="80.0" equa_inertia="1.5" .../>
+> ```
+> - `equa_inertia`：1.5/1.5/1.2/0.05/0.05/0.01，**逐关节不同** → 我们用这个当 armature
+> - `inertia`：2.027236783（关节 1-3）、0.219280696（关节 4-6），**按电机分组相同**
+> - `motor_constant` / `ratio`：8.72 & 121（关节 1-3）、7.092 & 101（关节 4-6）
+>
+> **`inertia` 与 `equa_inertia` 哪个才是 armature（关节侧折算惯量），无法从厂家资料判定**：
+> 厂家 `xacro.sh` / `ros1_xacro.sh` 都用 `sed '/<property/d'` 主动删掉这些字段，**全栈无人消费**；
+> 五个官方仓库、驱动手册、SDK API 文档、网络检索都查不到字段定义。
+> "`inertia` × ratio² 当反射惯量"也走不通（关节 1-3 得 29282 kg·m²，明显不对，说明它不是电机侧 SI 值）。
+>
+> **A/B 对照实验（2026-09-24，`scripts/armature_ab_offline.py`）**：把 armature 换成 `inertia` 后，
+> 被控对象内环时间常数 τ=(M_crb+armature)/(kv+damping) 变为
+
+| 关节 | A: equa_inertia | B: inertia | τ_B/τ_A |
+|---|---|---|---|
+| shoulder | 9.58 ms | 10.77 ms | 1.12× |
+| upperArm | 8.75 ms | 9.09 ms | 1.04× |
+| foreArm | 5.43 ms | 6.99 ms | 1.29× |
+| wrist1 | 3.21 ms | 9.17 ms | 2.86× |
+| wrist2 | 3.10 ms | 8.64 ms | 2.78× |
+| wrist3 | 1.19 ms | **20.05 ms** | **16.85×** |
+
+> **闭环验收对之不敏感**：A 与 B 跑同一套 `pose_target_test.py`，平移都是 6/6（最大误差 1.4~1.7 mm），
+> 旋转都是 6/6（各方向完成度差异 <0.1%）。原因是外环（τ≈74 ms）比两个内环都慢得多，
+> 1 ms 与 20 ms 的内环在外环看来"都足够快"。**所以本工程的跟踪/增益结论不依赖这个选择。**
+> 结论：**维持 `equa_inertia`**（逐关节字段，更像关节级等效惯量），并把上述不确定性记录在此。
+> 若将来要做力矩/电流级的工作，必须先从厂家拿到字段定义再定。
 
 ### 执行器增益：实测选定 kp = 25000 / 2500
 
@@ -112,9 +164,9 @@ print('ncon =', d.ncon, '(应为 0)')
 | **✅ kp=25000/2500（当前值）** | **0.124°** | **0.784°** | 77% |
 | kp=30000/3000 + armature 0.3 | 0.103° | 0.704° | **134%（震荡）** |
 
-结论：kp 越大跟踪越好；但把 armature 从 0.1 加到 0.3 会从"超调"恶化成"震荡"，所以 armature 保持 0.1。
+结论：kp 越大跟踪越好（上表是**实测**扫描，不是推导）。kp=25000 与官方 `mujoco_ros2_control` demo（`test_robot.urdf`：`kp="25000"` 配 `effort="1000"`）同值；腕部取 1/10。
 
-那 77% 的超调**是力矩上限（`actuatorfrcrange` ±133 / ±13.5 N·m）饱和造成的，不是发散**——真实伺服驱动器也这样。而且阶跃响应不代表遥操场景（Servo 发的是连续小增量），所以以"正弦跟踪滞后"为准。
+那 77% 的超调**是力矩上限饱和造成的，不是发散**——真实伺服驱动器也这样。注意两个厂家力矩数：URDF `<limit effort>` 是 **133 / 13.5 N·m**，而 `<property protect_max_torque>` 是 **80/80/60/16/16/10 N·m**；**本模型 `actuatorfrcrange` 执行的是后者**（保护阈值，更保守）。所以"饱和"发生在 80/60/16/10，不是 133/13.5。
 
 > ⚠️ **Aubo 官方不发布 MuJoCo 模型，只发 URDF。URDF 里没有"执行器增益"这个概念**——它属于 MuJoCo 层。所以不存在"厂家封装好的执行器"，任何人在 MuJoCo 里跑 Aubo i5 都必须自己定这组值。这是行业现状，不是绕路。
 >
