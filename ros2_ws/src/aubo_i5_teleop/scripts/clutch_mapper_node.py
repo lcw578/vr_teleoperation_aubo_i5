@@ -82,6 +82,9 @@ class ClutchMapperNode(Node):
         self.mapper = ClutchPoseMapper(rot_reach_limit=0.6, pos_reach_limit=0.25)
         self.scale = 1.0                     # 1.0（1:1）↔ SCALE_FINE（1:5 微调）
         self._engaged = False
+        self._last_tgt_p = None            # 最后发布的基准（重接合锚点用）
+        self._last_tgt_q_wxyz = None
+        self._last_tgt_time = 0.0
         self._ctrl_p = None
         self._ctrl_q_wxyz = None             # 手柄姿态，mujoco 约定
         self._pose_arrival = None            # wall time
@@ -95,6 +98,7 @@ class ClutchMapperNode(Node):
         self._fk_arrival = None
         self._status = None
         self._n_target = 0
+        self._dbg = 0
         qos = fast_qos()
         self.create_subscription(PoseStamped, POSE_TOPIC, self._on_pose, qos)
         self.create_subscription(Joy, JOY_TOPIC, self._on_joy, qos)
@@ -147,12 +151,21 @@ class ClutchMapperNode(Node):
     def _engage(self):
         self.mapper.scale = self.scale
         self.mapper.scale_rotation = self.scale
-        self.mapper.engage(self._ctrl_p, self._ctrl_q_wxyz, self._ee_p, self._ee_q_wxyz)
+        # 锚点选择：2.5 s 内发过目标 → 锚到**最后基准**（臂可能还在走完它，
+        # 锚实测会让目标后跳、快速点离合时表现为来回摆动——2026-09-25 用户实测）；
+        # 否则锚到实测末端（FK）。
+        anchor_p, anchor_q = self._ee_p, self._ee_q_wxyz
+        src = "实测"
+        if (self._last_tgt_p is not None
+                and time.time() - self._last_tgt_time < 2.5):
+            anchor_p, anchor_q = self._last_tgt_p, self._last_tgt_q_wxyz
+            src = "最后基准"
+        self.mapper.engage(self._ctrl_p, self._ctrl_q_wxyz, anchor_p, anchor_q)
         self._engaged = True
         qd = max(abs(self._q[j][1]) for j in GROUP)
-        warn = "（⚠️ 臂运动中接合，锚点=实测位姿，可能小幅回拉）" if qd > QD_WARN else ""
-        self.get_logger().info("接合：锚点末端 (%.3f, %.3f, %.3f)%s"
-                               % (*self._ee_p, warn))
+        warn = "（⚠️ 臂运动中接合）" if qd > QD_WARN else ""
+        self.get_logger().info("接合：锚点末端 (%.3f, %.3f, %.3f) [%s]%s"
+                               % (*anchor_p, src, warn))
 
     def _disengage(self, reason):
         self.mapper.disengage()
@@ -161,6 +174,13 @@ class ClutchMapperNode(Node):
 
     # ---------- 主循环 ----------
     def _tick(self):
+        self._dbg += 1
+        if self._dbg % 200 == 1:
+            self.get_logger().info("DBG tick#%d: engaged=%s joy_btn=%s joy_age=%s pose_age=%s fk_age=%s"
+                                   % (self._dbg, self._engaged, self._joy_buttons,
+                                      (time.time() - self._joy_arrival) if self._joy_arrival else None,
+                                      (time.time() - self._pose_arrival) if self._pose_arrival else None,
+                                      (time.time() - self._fk_arrival) if self._fk_arrival else None))
         now = time.time()
         clutch = self._joy_buttons[0] if (self._joy_arrival and
                                           now - self._joy_arrival < FRESH_ENGAGE) else 0
@@ -211,6 +231,9 @@ class ClutchMapperNode(Node):
         msg.pose.orientation.x, msg.pose.orientation.y = qx, qy
         msg.pose.orientation.z, msg.pose.orientation.w = qz, qw
         self.pub_target.publish(msg)
+        self._last_tgt_p = np.array(tp, float)
+        self._last_tgt_q_wxyz = np.array(tq, float)
+        self._last_tgt_time = time.time()
         self._n_target += 1
         if self._n_target % (int(RATE_HZ) * 10) == 0:
             st = STATUS_MEANING.get(self._status, self._status)
