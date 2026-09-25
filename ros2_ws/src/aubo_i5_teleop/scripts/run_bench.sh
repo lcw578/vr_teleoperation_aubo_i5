@@ -38,6 +38,11 @@ source /opt/ros/humble/setup.bash
 source "$WS/install/setup.bash"
 cd "$PKG" || exit 1
 
+# DDS 钉死 wlp4s0（2026-09-25 晚自动选型漂移事故，见 config/cyclonedds_local.xml 注释）
+export CYCLONEDDS_URI="file://$PKG/config/cyclonedds_local.xml"
+# 同上：.bashrc 的 ROS_LOCALHOST_ONLY=1 会压过接口钉死（A/B 实测），此处显式关闭
+export ROS_LOCALHOST_ONLY=0
+
 # ⚠️ 每次起栈前强制重编译（约 10 s）：本包的 launch/脚本/config 是普通拷贝安装，
 #    手改源文件后忘了 colcon build 就会带着旧参数跑（2026-09-25 审计发现 install 里
 #    pose_tracking_settings.yaml 落后于源目录）。宁可多花 10 秒。

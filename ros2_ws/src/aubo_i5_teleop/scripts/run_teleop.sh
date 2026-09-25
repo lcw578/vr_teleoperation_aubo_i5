@@ -18,6 +18,10 @@ source /opt/ros/humble/setup.bash
 source "$WS/install/setup.bash"
 cd "$PKG" || exit 1
 
+# DDS 钉死 wlp4s0（与 run_demo.sh/run_bench.sh 同款，见 config/cyclonedds_local.xml 注释）
+export CYCLONEDDS_URI="file://$PKG/config/cyclonedds_local.xml"
+export ROS_LOCALHOST_ONLY=0
+
 cleanup() {
   echo ""
   echo "收摊..."
