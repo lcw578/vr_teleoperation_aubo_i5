@@ -36,7 +36,7 @@ colcon build --packages-up-to aubo_i5_teleop \
 
 ---
 
-## 二、参考克隆（不是构建依赖，仅供分析比对；在 `_official/` 与 `_refs/`，已 gitignore）
+## 二、参考克隆（不是构建依赖，仅供分析比对；在 `_official/`、`_refs/` 与家目录软链，已 gitignore）
 
 | 目录 | 来源 | 版本 | 用途 |
 |---|---|---|---|
@@ -49,6 +49,7 @@ colcon build --packages-up-to aubo_i5_teleop \
 | **`_refs/dh_gripper_ros`** | ian-chuang/dh_gripper_ros | `9a97210` | **AG95 的 45 条内部排除来源**（`dh_ag95_moveit_config/config/dh_ag95_gripper.srdf`）+ 描述包上游 |
 | **`_refs/oculus_reader`** | ian-chuang/oculus_reader（RAIL Berkeley 的 fork） | `aae45ba` | **VR 手柄映射层**（`src/pose_teleop.py` 的相对参考帧做法）；APK 走 git-lfs |
 | `_refs/Auboi5_Scan_Simulator` / `Manipulator-Mujoco` / `mujoco-Aubo-RL-PathPlanning` | 各第三方 | `2d457b8` / `f2d7d77` / `fe5d722` | 早期找模型时调研过的候选 |
+| **`lerobot`**（家目录软链 `~/lerobot` → `/data/lerobot`，与 `~/tomato_robot` 等同款） | huggingface/lerobot | `e624f3f7`（main，2026-09-24） | **数据格式 + 训练框架**：LeRobotDataset 录制/训练（含 π0/ACT/Diffusion），对应 HarvestFlex 基线的 π0 路线。注意其 robot/teleop 驱动**不含 Aubo**，我们只用数据格式与训练侧；要求 Python ≥3.12（需独立环境，勿用 ROS 的 3.10） |
 
 ---
 

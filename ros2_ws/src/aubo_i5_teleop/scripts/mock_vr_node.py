@@ -132,6 +132,11 @@ class MockVR(Node):
         k = self._keyname(key)
         if k in TRANS_KEYS or k in ROT_KEYS:
             self._held.add(k)
+        elif k == "space":
+            # ⚠️ 空格不在 TRANS/ROT_KEYS 里，原实现只查 _held → 键盘模式的
+            #    离合永远为 0（2026-09-25 用户实测抓出：Shift 切档有反应、
+            #    空格离合毫无反应）。改用与脚本模式同一个持久电平。
+            self._clutch_level = 1
         elif k == "shift" and not self._prev_shift:
             self._pulse_scale = True
         elif k == "z" and not self._prev_z:
@@ -144,6 +149,8 @@ class MockVR(Node):
     def _off_key(self, key):
         k = self._keyname(key)
         self._held.discard(k)
+        if k == "space":
+            self._clutch_level = 0
         if k == "shift":
             self._prev_shift = False
         if k == "z":
@@ -182,7 +189,7 @@ class MockVR(Node):
                 elif k in ROT_KEYS:
                     ax, sgn = ROT_KEYS[k]
                     w[ROT_IDX[ax]] += sgn * W_ROT
-            clutch = 1 if "space" in self._held else 0
+            clutch = self._clutch_level
         else:
             for (t0, dur, act, args) in self._script:
                 if dur > 0 and t0 <= el < t0 + dur:
