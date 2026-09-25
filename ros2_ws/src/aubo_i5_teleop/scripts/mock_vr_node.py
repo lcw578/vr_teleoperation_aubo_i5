@@ -37,6 +37,19 @@ from pathlib import Path
 
 import numpy as np
 import rclpy
+from pynput import keyboard as pynput_kb
+
+# 特殊键表：模块级构建（引用 pynput_kb；曾因 keyboard 只在 _start_keyboard
+# 局部作用域而 NameError——每按一次空格/Shift 监听回调就抛一次异常被吞掉，
+# 表现为"离合永远按不上"，用户的按键全被焦点窗口消费）
+_SPECIAL = {
+    pynput_kb.Key.space: "space",
+    pynput_kb.Key.shift: "shift",
+    pynput_kb.Key.shift_r: "shift",
+    pynput_kb.Key.ctrl_l: "ctrl",
+    pynput_kb.Key.ctrl_r: "ctrl",
+    pynput_kb.Key.esc: "esc",
+}
 from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
 from sensor_msgs.msg import Joy
@@ -103,19 +116,17 @@ class MockVR(Node):
 
     # ---------- 键盘 ----------
     def _start_keyboard(self):
-        from pynput import keyboard
-        lis = keyboard.Listener(on_press=self._on_key, on_release=self._off_key)
+        lis = pynput_kb.Listener(on_press=self._on_key, on_release=self._off_key)
         lis.daemon = True
         lis.start()
 
     @staticmethod
     def _keyname(key):
         try:
-            return (key.char or "").lower()
+            ch = key.char
+            return (ch or "").lower()
         except AttributeError:
-            return {keyboard.Key.space: "space", keyboard.Key.shift: "shift",
-                    keyboard.Key.ctrl_l: "ctrl", keyboard.Key.ctrl_r: "ctrl",
-                    keyboard.Key.esc: "esc"}.get(key, "")
+            return _SPECIAL.get(key, "")
 
     def _on_key(self, key):
         k = self._keyname(key)
