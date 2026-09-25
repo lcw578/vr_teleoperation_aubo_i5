@@ -273,6 +273,6 @@ $PY scripts/verify_traversal.py --pose P02             # 单条穿越复现
 - AUBO-i5 & CB4 用户手册 V4.5.11（本仓库根目录 PDF）——速度上限 150/180°/s、臂展、基座 Ø172 mm
 - Xu et al., J. Field Robotics 2026——任务区几何（番茄串采摘样机）
 - [LARA_AUBOi5_AG95](https://github.com/ian-chuang/LARA_AUBOi5_AG95)——Aubo i5+AG95+Servo 遥操先例（容差取值出处）
-- [vr-teleop-kit](https://github.com/peterparkersssss/vr_teleop_kit)（本地 `_refs/`）——WebXR relay + ClutchPoseMapper
+- [vr-teleop-kit](https://github.com/Dream-Machines-Robotics/vr-teleop-kit)（本地 `_refs/`）——WebXR relay + ClutchPoseMapper
 - MoveIt 2 Servo `pose_tracking_demo`（Humble）——C++ 入口的官方骨架
 - [Manipulator-Mujoco](https://github.com/ian-chuang/Manipulator-Mujoco)（本地 `_refs/`）——AG95 MJCF 手法出处；整包替换已否决
