@@ -1,0 +1,67 @@
+<mujoco>
+  <!--
+    臂 + 夹爪的执行器定义 —— **位置模式**（当前默认，与真机一致）。
+
+    ⚠️ 2026-09-24 定稿说明：**位置环由"伺服接口层 + 位置执行器"承担**，
+    不是 mujoco_ros2_control 的内置 PID。下面记录这条结论的两个来源。
+
+    ── 为什么用 <position>（PD）──────────────────────────────────────────────
+    它**能保持位置**：ctrl 是绝对位置，静止时误差 → 力矩。这是"机械臂停住不动"的前提。
+
+    ── 为什么位置环要配"伺服接口层"（scripts/servo_interface.py）────────────
+    MoveIt Servo 的位置输出是 `q_cmd = 实测 + Δθ(单周期)`（servo_calcs.cpp:680/699/749），
+    **锚在实测位置上**。直接把它喂给位置执行器时，弹簧永远只被压一个周期的量、误差建不起来，
+    稳态是 `q̇ = (kp/kv)·Δ` —— 机械臂按固定比例永远落后。实测速度增益只有 **0.140–0.753**
+    （上臂最差），这就是历史上"位置模式 10 cm/s 只有 31%"的真正来源。
+    把**同一串增量**搬到绝对命令上（伺服接口层做的事），**被控对象完全不动**：
+    速度增益 1.000、位置滞后 v·τ_servo（几 mrad，有界）、归位残差 0.00000。
+    这一步不是我们发明的控制律——它就是厂家 `servoj` 的"速度前馈"那一环
+    （把位置流积分成绝对轨迹）；MoveIt 官方给仿真机器人的配置用 JointTrajectory→JTC
+    达到同一目的。之所以需要一个显式解码步，是因为 Servo 发出的流锚在实测上。
+
+    ═══════════════════════════════════════════════════════════════════════════
+    ⚠️ 2026-09-24 试过并**已否决**的两条路（避免以后重走）
+    ═══════════════════════════════════════════════════════════════════════════
+    1) **把 kp 拧硬**去凑速度增益=1（曾逐关节提到 9.4e5~3.3e6，见 scripts/position_actuator_kp_calib.py）：
+       执行器在 ~24 µrad 就进入力矩饱和，而且**整栈起不来**（joint_state_broadcaster 加载失败、
+       controller_manager 服务超时）；回退到 25000/2500 立刻正常。
+       结论：速度不足不是刚度问题，把弹簧拧硬是"用错的模型凑一个稳态数字"。
+
+    2) **改用 <motor> + mujoco_ros2_control 内置 PID**（config/mujoco_pid.yaml 与
+       scripts/pid_gain_calib.py 是那次的产物，保留备查）：
+       内置 PID 的误差是 `error = command − measured`，而 `command = measured + Δ`
+       → **error ≡ Δ**，误差恒等于增量、**与被控对象实际位置无关**。后果：
+         · 静止时 error = 0 → 输出 0 → **没有保持力矩**，且机械臂漂到哪环路都看不见；
+         · 运动时 error = Δ ≠ 0 → **积分项持续累积**冲到限幅。
+       实机实测：wrist3 归位残差 **13.6 → 24.5 mrad**（不可重复、且变大），而本配置是 0.00000；
+       同一套增益下离线台架给出速度增益 25×、超调 3000%。
+       结论：**结构问题，不是调参问题**——PID 修不好一个"锚在实测上"的流。
+       （附带更正：我一度认为"积分项才是那一环的解"，那是错的；积分作用在同一个 Δ 上，
+        只会积到饱和。真正的解是让命令变成绝对位置。）
+
+    ── 参数来源 ──────────────────────────────────────────────────────────────
+    kp = 25000（关节 1-3）/ 2500（腕部）：与官方 mujoco_ros2_control demo 的
+    test_robot.urdf 同值（那里配 effort=1000），腕部取 1/10。**起步值。**
+    dampratio="1.0"：让 MuJoCo 按关节惯量自动算阻尼（临界阻尼），不手调 kv。
+    关节的 actuatorfrcrange 取厂家 `<property protect_max_torque>`（80/80/60/16/16/10 N·m）；
+    注意 URDF `<limit effort>` 是另一组数（133 / 13.5 N·m）——本模型执行的是前者（更保守）。
+
+    ── 速度模式（已归档，非默认）────────────────────────────────────────────
+    速度模式在本款机械臂上不成立（厂家驱动的速度命令接口是死壳，write() 只调位置型
+    Servoj；SDK 不在本机，无法证明存在关节速度 API），所以位置模式是与真机一致的唯一路线。
+    actuators_velocity.xml 保留作为对照与历史记录。
+  -->
+  <actuator>
+    <position name="shoulder_joint" joint="shoulder_joint" kp="25000" dampratio="1.0" ctrlrange="-3.04 3.04"/>
+    <position name="upperArm_joint" joint="upperArm_joint" kp="25000" dampratio="1.0" ctrlrange="-3.04 3.04"/>
+    <position name="foreArm_joint" joint="foreArm_joint" kp="25000" dampratio="1.0" ctrlrange="-3.04 3.04"/>
+    <position name="wrist1_joint" joint="wrist1_joint" kp="2500" dampratio="1.0" ctrlrange="-3.04 3.04"/>
+    <position name="wrist2_joint" joint="wrist2_joint" kp="2500" dampratio="1.0" ctrlrange="-3.04 3.04"/>
+    <position name="wrist3_joint" joint="wrist3_joint" kp="2500" dampratio="1.0" ctrlrange="-3.04 3.04"/>
+    <!-- 夹爪：单自由度。tendon 长度 = 0.5*(左外节+右外节)，与外节角同量纲，所以 ctrl 就是开合角。
+         kp/kv 是起步值——AG95 原模型用 kp=10/kv=0.1（很软），这里加硬一些便于位置跟踪，需按手感调。
+         名字必须是**真实关节名**（官方文档：tendon 执行器的 name 要与 ros2_control 里那个可控制关节同名），
+         否则插件启动时报 "Tendon actuator ... has no matching joint" 并直接 FATAL 退出。 -->
+    <position name="left_outer_knuckle_joint" tendon="ag95_split" kp="200" kv="0.3" ctrlrange="0 0.55" forcerange="-1.2 1.2"/>
+  </actuator>
+</mujoco>

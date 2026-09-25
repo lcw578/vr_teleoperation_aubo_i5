@@ -1,0 +1,144 @@
+<mujoco model="aubo_i5_ros2_demo">
+  <!--
+    演示场景变体 = scene_ros2.xml 的完整拷贝 + 番茄演示任务物体（DATA_PIPELINE_PLAN.md 阶段 A）。
+    定位（用户 2026-09-25 裁定）：**管线测试床**——接触物理以"能抓起、能落篮"为准，不做严谨调参。
+
+    为什么是完整拷贝而不是 include scene_ros2.xml：
+      加入自由体（方块）后 nq 12→19，而 scene_ros2.xml 的 keyframe "ready" 是 12 维。
+      keyframe 必须写满 nq（见下方 keyframe 注释，2026-09-24 教训）：3.3.5 会拒绝编译，
+      3.12 会把缺的 7 维静默补 0 → 方块瞬移到世界原点（立柱里）爆炸。
+      include 无法覆盖/追加已有 keyframe 的维度，只能复制整个文件改 keyframe。
+
+    ⚠️ 同步规则：scene_ros2.xml 变更时必须同步本文件（项目里 scene_ros2 / scene_ros2_velocity
+       并行变体的同款约定）。反过来，本文件的 demo_* 物体不得抄回 scene_ros2.xml——
+       那是基准台架的场景，任务物体会挡住 follow_bench 的位姿。
+
+    演示物体（几何依据 DATA_PIPELINE_PLAN.md §1，任务区 = 正前方 y≈−0.8 m、距基座 700–944 mm）：
+      · demo_table  桌子（整体柱式）：桌面 0.35×0.35，上表面 z=−0.1（= 真机 1.1 m 果实高度下限）
+      · demo_cube   方块 5 cm，放在桌面中央 (0, −0.7)——距基座 0.704 m，在任务区内
+      · demo_basket 果篮（4 壁 + 底）：底盘上 (0.35, 0.25)，对应论文 Figure 11 的果篮位置
+    同步：demo_table / demo_basket（合并为一个实心盒）已加入 add_scene_floor.py 的
+      --scene demo 物体表；方块是运动物体，不进 planning scene（MoveIt 不知道它会动）。
+  -->
+  <include file="scene_aubo_i5.xml"/>
+
+  <statistic center="0 0 0.35" extent="1.2"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.1 0.1 0.1" specular="0 0 0"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="120" elevation="-20"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0"
+             width="512" height="3072"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge"
+             rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" markrgb="0.8 0.8 0.8"
+             width="300" height="300"/>
+    <material name="groundplane" texture="groundplane" texuniform="true"
+              texrepeat="8 8" reflectance="0.1"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 0 1.5" dir="0 0 -1" directional="true"/>
+    <geom name="floor" type="plane" size="0 0 0.05" pos="0 0 -1.2"
+          material="groundplane" contype="1" conaffinity="0"/>
+    <geom name="chassis" type="box" size="0.65 0.42 0.245" pos="0 0 -0.955"
+          rgba="0.25 0.25 0.28 1" contype="1" conaffinity="0"/>
+    <geom name="platform_column" type="box" size="0.125 0.125 0.3525" pos="0 0 -0.3575"
+          rgba="0.45 0.45 0.48 1" contype="1" conaffinity="0"/>
+
+    <!-- ============ 演示任务物体（仅本场景） ============ -->
+    <!-- 桌子：柱式整体，底 -1.2 顶 -0.1（桌面即真机 1.1 m 高度）；contype 同底盘惯例 -->
+    <geom name="demo_table" type="box" size="0.175 0.175 0.55" pos="0 -0.7 -0.65"
+          rgba="0.55 0.45 0.35 1" contype="1" conaffinity="0"/>
+    <!-- 方块：唯一自由体。桌面 z=-0.1，方块半边 0.025 → 中心 z=-0.075。
+         friction 滑动 1.0（MuJoCo 默认）保证夹得住；测试床不做接触调优 -->
+    <!-- ⚠️ 2026-09-25 深夜：gravcomp="0.9"（重力补偿 90%，等效重量 1/10）——
+         抓持滑落的决定性修复（用户实测：夹起后提起滑落）。夹持力对 0.098 N
+         残余重量的余量放大 10 倍；松爪落篮仍有效（缓降入篮）。
+         调回 0 = 恢复完整重力（将来追求真实感时）。 -->
+    <body name="demo_cube" pos="0 -0.7 -0.075" gravcomp="0.9">
+      <freejoint name="demo_cube_joint"/>
+      <!-- friction 滑动 3.0（高摩擦"微粘"）：位置夹爪+凹弧指面对方块有楔出效应，
+           测试床口径下用高摩擦消灭挤飞；力上限由 actuators_position_demo.xml 的
+           forcerange 承担（模拟真机电流限制） -->
+      <geom name="demo_cube_geom" type="box" size="0.025 0.025 0.025"
+            rgba="0.9 0.3 0.2 1" mass="0.1" friction="3.0 0.02 0.001"/>
+    </body>
+    <!-- 果篮：底盘面 z=-0.71 上，内腔 0.31×0.31、壁高 0.12；底板薄盘防漏 -->
+    <geom name="demo_basket_floor" type="box" size="0.16 0.16 0.005" pos="0.35 0.25 -0.705"
+          rgba="0.3 0.5 0.8 1" contype="1" conaffinity="0"/>
+    <geom name="demo_basket_wall_ym" type="box" size="0.16 0.006 0.06" pos="0.35 0.096 -0.65"
+          rgba="0.3 0.5 0.8 1" contype="1" conaffinity="0"/>
+    <geom name="demo_basket_wall_yp" type="box" size="0.16 0.006 0.06" pos="0.35 0.404 -0.65"
+          rgba="0.3 0.5 0.8 1" contype="1" conaffinity="0"/>
+    <geom name="demo_basket_wall_xm" type="box" size="0.006 0.16 0.06" pos="0.196 0.25 -0.65"
+          rgba="0.3 0.5 0.8 1" contype="1" conaffinity="0"/>
+    <geom name="demo_basket_wall_xp" type="box" size="0.006 0.16 0.06" pos="0.504 0.25 -0.65"
+          rgba="0.3 0.5 0.8 1" contype="1" conaffinity="0"/>
+  </worldbody>
+
+  <option integrator="implicitfast" timestep="0.001"/>
+
+  <contact>
+    <!-- 与 scene_ros2.xml 逐字一致（SRDF 对齐的 12 条排除 + AG95 内部），见源文件注释 -->
+    <exclude body1="world"         body2="shoulder_Link"/>
+    <exclude body1="world"         body2="upperArm_Link"/>
+    <exclude body1="shoulder_Link" body2="upperArm_Link"/>
+    <exclude body1="shoulder_Link" body2="wrist1_Link"/>
+    <exclude body1="upperArm_Link" body2="foreArm_Link"/>
+    <exclude body1="foreArm_Link"  body2="wrist1_Link"/>
+    <exclude body1="wrist1_Link"   body2="wrist2_Link"/>
+    <exclude body1="wrist1_Link"   body2="wrist3_Link"/>
+    <exclude body1="wrist2_Link"   body2="wrist3_Link"/>
+    <exclude body1="ag95_base" body2="ag95_left_inner_knuckle"/>
+    <exclude body1="ag95_base" body2="ag95_left_outer_knuckle"/>
+    <exclude body1="ag95_base" body2="ag95_right_inner_knuckle"/>
+    <exclude body1="ag95_base" body2="ag95_right_outer_knuckle"/>
+    <exclude body1="ag95_left_inner_knuckle"  body2="ag95_left_finger"/>
+    <exclude body1="ag95_right_inner_knuckle" body2="ag95_right_finger"/>
+    <exclude body1="wrist3_Link" body2="ag95_base"/>
+    <exclude body1="wrist3_Link" body2="ag95_left_inner_knuckle"/>
+    <exclude body1="wrist3_Link" body2="ag95_right_inner_knuckle"/>
+    <exclude body1="wrist3_Link" body2="ag95_left_outer_knuckle"/>
+    <exclude body1="wrist3_Link" body2="ag95_right_outer_knuckle"/>
+  </contact>
+
+  <tendon>
+    <fixed name="ag95_split">
+      <joint joint="left_outer_knuckle_joint" coef="0.5"/>
+      <joint joint="right_outer_knuckle_joint" coef="0.5"/>
+    </fixed>
+  </tendon>
+
+  <equality>
+    <connect anchor="-0.020673 0 0.007524" body1="ag95_left_finger"  body2="ag95_left_inner_knuckle"
+             solimp="0.95 0.99 0.001" solref="0.005 1"/>
+    <connect anchor="-0.020673 0 0.007524" body1="ag95_right_finger" body2="ag95_right_inner_knuckle"
+             solimp="0.95 0.99 0.001" solref="0.005 1"/>
+    <joint joint1="left_outer_knuckle_joint" joint2="right_outer_knuckle_joint"
+           polycoef="0 1 0 0 0" solimp="0.95 0.99 0.001" solref="0.005 1"/>
+  </equality>
+
+    <!-- 演示版执行器：夹爪加了 forcerange="0 10"（力上限）——位置控制夹爪抓物时
+         手指到不了"全闭"目标位，会以 kp=200 的全增益持续硬顶，实测把方块挤飞；
+         力上限模拟真机夹爪的"电流限制"行为：碰到物体后力封顶 = 温和夹持。
+         基准场景（scene_ros2.xml）仍用原版 actuators_position.xml，互不影响。 -->
+  <include file="actuators_position_demo.xml"/>
+
+  <keyframe>
+    <!--
+      = scene_ros2.xml 的 "ready"（来源与选择理由见源文件注释），区别仅一：
+      加了自由体 demo_cube 后 nq 12→19 / nv 12→18，keyframe 必须写满
+      （3.3.5 拒绝部分长度；3.12 静默补 0 → 方块会被放到世界原点立柱里）。
+      方块 7 维 = [x y z qw qx qy qz] = 初始位 (0, −0.7, −0.075) 单位四元数。
+      ctrl 仍 7 维（方块无执行器）。qpos 与 ctrl 一致，启动不会拉臂。
+    -->
+    <key name="ready"
+         qpos="-1.089254 -0.802598 1.308255 0.588418 0.324607 -0.704605 0 0 0 0 0 0 0 -0.7 -0.075 1 0 0 0"
+         qvel="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"
+         ctrl="-1.089254 -0.802598 1.308255 0.588418 0.324607 -0.704605 0"/>
+  </keyframe>
+</mujoco>
