@@ -60,6 +60,10 @@ class CameraRig:
         import mujoco
         self.mujoco = mujoco
         self.m = mujoco.MjModel.from_xml_path(scene_path)
+        # ⚠️ 阴影关闭（2026-09-26 现场诊断）：与 MuJoCo 交互窗口的 GPU 争用 +
+        #    阴影渲染，把 30Hz 压到 3.5Hz（实测首场录制）。关阴影后三路合计
+        #    2.3ms（带阴影 1.9+0.7+0.7ms），争用下也有 10 倍余量。
+        self.m.vis.quality.shadowsize = 0
         self.d = mujoco.MjData(self.m)
         mujoco.mj_resetDataKeyframe(self.m, self.d, 0)
         mujoco.mj_forward(self.m, self.d)
@@ -76,12 +80,13 @@ class CameraRig:
         self._joint_state = None  # (names, positions, stamp)
 
     def apply_joint_state(self, names, positions):
-        """按关节名把 /joint_states 回填进 qpos（未出现的关节保持原值）。"""
+        """按关节名把 /joint_states 回填进 qpos（未出现的关节保持原值）。
+        注意：这里只写 qpos 不做 mj_forward——正运动学在 render_all 里每
+        渲染帧做一次即可（/joint_states 190Hz×mj_forward 纯属浪费）。"""
         for name, val in zip(names, positions):
             adr = self.jnt_qadr.get(name)
             if adr is not None:
                 self.d.qpos[adr] = val
-        self.mujoco.mj_forward(self.m, self.d)
 
     def _apply_d405_follow(self):
         """D405 世界位姿 = ag95_base 实时位姿 × 局部标称（look-at up=基座 -y）。"""
@@ -102,6 +107,7 @@ class CameraRig:
 
     def render_all(self):
         """渲染三路 → {名字: (h,w,3) uint8}。"""
+        self.mujoco.mj_forward(self.m, self.d)   # 每渲染帧一次（详见 apply_joint_state 注）
         self._apply_d405_follow()
         out = {}
         for n, (w, h, _, _) in CAMERAS.items():
