@@ -53,6 +53,7 @@ cleanup_stack() {
   local pats=("stage2a_mujoco.launch.py" "stage2b_moveit.launch.py" \
               "stage3_pose_tracking.launch.py" "add_scene_floor.py" \
               "go_ready.py" "servo_interface.py" "servo_pose_tracking" \
+              "multi_camera_renderer.py" \
               "move_group" "ros2_control_node" "rviz2")
   for pat in "${pats[@]}"; do
     for p in $(pgrep -f "$pat"); do kill -TERM "$p" 2>/dev/null; done
@@ -138,6 +139,12 @@ setsid ros2 launch aubo_i5_teleop stage2a_mujoco.launch.py \
 wait_controller forward_command_controller_position || exit 1
 wait_controller gripper_controller || exit 1
 echo "stage2a 就绪"
+
+echo "########## 1.5/3 起三路虚拟相机渲染节点（阶段 B）##########"
+# 订阅 /joint_states 渲染 D405 腕部 + D435 右/左，发布 /camera/*/image_rect_color
+# （venv python 自带 mujoco 3.12.0 与仿真同版；节点内部自设 MUJOCO_GL=egl）
+"$PY" scripts/multi_camera_renderer.py > ${LOG}_cams.log 2>&1 &
+sleep 2
 
 echo "########## 2/3 起 stage2b + 归位 + 演示场景 planning scene ##########"
 setsid ros2 launch aubo_i5_teleop stage2b_moveit.launch.py > ${LOG}_2b.log 2>&1 &

@@ -27,7 +27,7 @@
   <visual>
     <headlight diffuse="0.6 0.6 0.6" ambient="0.1 0.1 0.1" specular="0 0 0"/>
     <rgba haze="0.15 0.25 0.35 1"/>
-    <global azimuth="120" elevation="-20"/>
+    <global azimuth="120" elevation="-20" offwidth="1920" offheight="1080"/>
   </visual>
 
   <asset>
@@ -78,6 +78,16 @@
           rgba="0.3 0.5 0.8 1" contype="1" conaffinity="0"/>
     <geom name="demo_basket_wall_xp" type="box" size="0.006 0.16 0.06" pos="0.504 0.25 -0.65"
           rgba="0.3 0.5 0.8 1" contype="1" conaffinity="0"/>
+    <!-- ============ 虚拟相机（阶段 B，二代配置）============
+         D405 腕部：body 内标称位姿 (0,-0.035,0.115) 朝 (0,0,0.15)（ag95_base 系），
+           世界位姿由渲染节点每帧按 ag95_base 实时位姿覆写（上游机器人文件不可改，
+           故放 worldbody + 运行时覆写）。fovy=58.0 按 D405 内参 fy 换算。
+         D435 侧向 ×2：按一代论文参数化思想安装（距臂基 310mm 沿行驶轴、高 400mm、
+           斜向看作业区），左右镜像；左侧相机演示中渲染+录制但不进数据集 v1。
+         针孔近似：主点居中、零畸变（D405 真实主点偏移 13px/畸变 k1=-0.054 未建模）。 -->
+    <camera name="d405_wrist" pos="0.170 -0.774 0.320" xyaxes="0.5493 -0.6051 -0.5764 -0.6371 0.1431 -0.7574" fovy="58.0"/>
+    <camera name="d435_right" pos="0.30 -0.40 -0.31" xyaxes="-0.7071 0.7071 0.0000 0.3426 0.3426 0.8748" fovy="42.6"/>
+    <camera name="d435_left" pos="-0.30 0.40 -0.31" xyaxes="0.7071 -0.7071 0.0000 -0.3426 -0.3426 0.8748" fovy="42.6"/>
   </worldbody>
 
   <option integrator="implicitfast" timestep="0.001"/>
