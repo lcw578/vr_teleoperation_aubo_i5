@@ -56,6 +56,7 @@ _SPECIAL = {
 from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
 from sensor_msgs.msg import Joy
+from std_msgs.msg import String
 
 POSE_TOPIC = "/mock_vr/pose"
 JOY_TOPIC = "/mock_vr/joy"
@@ -96,6 +97,8 @@ class MockVR(Node):
         super().__init__("mock_vr")
         self.pub_pose = self.create_publisher(PoseStamped, POSE_TOPIC, 10)
         self.pub_joy = self.create_publisher(Joy, JOY_TOPIC, 10)
+        # 会话状态回显：让操作者在自己的终端里直接看到 录制/暂停/待机
+        self.create_subscription(String, "/session_state", self._on_session, 10)
         self.p = np.array([0.0, -0.30, 0.30])       # 虚拟手柄初始位姿（绝对值无意义：
         self.q = np.array([1.0, 0.0, 0.0, 0.0])     #  离合锚定会吸收常量偏置）
         self._held = set()                          # 按住的键（小写）
@@ -113,13 +116,21 @@ class MockVR(Node):
         self._t0 = time.time()
         self._last = time.time()
         self._n = 0
+        self._session_state = None                 # 会话状态（session_manager 发布）
         if self._script is None:
             self._start_keyboard()
             self.get_logger().info(
-                "键盘模式：WASD+QE 平移 | UO/IK/JL 旋转 | 空格=离合 | Shift=缩放 | Z=夹爪")
+                "键盘模式：WASD+QE 平移 | UO/IK/JL 旋转 | 空格=离合 | Shift=缩放 | Z=夹爪\n"
+                "会话控制：P=开始/暂停/恢复录制  Esc=结束当前录制段（状态见下方周期日志）")
         else:
             self.get_logger().info("脚本模式：%d 段" % len(self._script))
         self.timer = self.create_timer(1.0 / RATE_HZ, self._tick)
+
+    def _on_session(self, msg):
+        if msg.data != self._session_state:
+            self._session_state = msg.data
+            tag = {"recording": "🔴 录制中", "paused": "⏸ 已暂停", "idle": "⚪ 待机（按 P 开始录制）"}
+            self.get_logger().info(f"会话状态 → {tag.get(msg.data, msg.data)}")
 
     # ---------- 键盘 ----------
     def _start_keyboard(self):
@@ -258,8 +269,8 @@ class MockVR(Node):
 
         self._n += 1
         if self._n % (int(RATE_HZ) * 10) == 0:
-            self.get_logger().info("t=%.1f p=(%.2f,%.2f,%.2f) clutch=%d"
-                                   % (el, *self.p, clutch))
+            self.get_logger().info("t=%.1f p=(%.2f,%.2f,%.2f) clutch=%d session=%s"
+                                   % (el, *self.p, clutch, self._session_state or "?"))
 
 
 def main():

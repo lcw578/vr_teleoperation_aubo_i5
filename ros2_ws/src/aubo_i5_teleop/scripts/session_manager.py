@@ -177,6 +177,9 @@ def main():
     ap.add_argument("--bags-dir", default=BAGS_DIR)
     args = ap.parse_args()
 
+    # ⚠️ 2026-09-26：忘了这一行 → 节点启动即抛 NotInitializedException 死亡，
+    #    且错误被重定向进日志文件，终端一片安静（用户按 P 毫无反应）。
+    rclpy.init()
     node = SessionManager(args.bags_dir)
     try:
         rclpy.spin(node)

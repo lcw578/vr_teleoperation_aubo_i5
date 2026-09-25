@@ -150,6 +150,11 @@ echo "########## 1.6/3 起会话管理节点（录制状态机，IDLE 起步）#
 # P 键（joy[3]）=开始/暂停/恢复录制段；Esc（joy[4]）=结束当前段。袋落 /data/rosbags/
 "$PY" scripts/session_manager.py > ${LOG}_session.log 2>&1 &
 sleep 1
+# ⚠️ 2026-09-26：session_manager 曾因缺 rclpy.init() 静默死亡 → 按 P 无反应。
+#    起栈后必须确认两个辅助节点真的活着。
+for proc in multi_camera_renderer session_manager; do
+  pgrep -f "$proc" > /dev/null || { echo "❌ $proc 启动失败，见 ${LOG}_cams.log / ${LOG}_session.log"; exit 1; }
+done
 
 echo "########## 2/3 起 stage2b + 归位 + 演示场景 planning scene ##########"
 setsid ros2 launch aubo_i5_teleop stage2b_moveit.launch.py > ${LOG}_2b.log 2>&1 &
@@ -162,7 +167,13 @@ echo "########## 3/3 起 stage3（position 输出）+ 键盘 ##########"
 setsid ros2 launch aubo_i5_teleop stage3_pose_tracking.launch.py output_mode:=position \
   > ${LOG}_3.log 2>&1 &
 wait_topic_pub /forward_command_controller_position/commands || exit 1
-echo "栈就绪，进入键盘遥操（空格=离合按住才动，Z=夹爪）"
+echo "栈就绪，进入键盘遥操。"
+echo "──────────────────────────── 键位速查 ────────────────────────────"
+echo "  会话：P = 开始/暂停/恢复录制    Esc = 结束当前录制段"
+echo "  抓取：空格 = 离合（按住才动）   Z = 夹爪开/闭"
+echo "  运动：WASD+QE 平移   UO/IK/JL 旋转   Shift = 1:1↔1:5"
+echo "  录制状态看本终端的周期日志（session=recording 即在录）"
+echo "──────────────────────────────────────────────────────────────"
 # 不用 exec：退出后本脚本的 EXIT 陷阱还要收摊整个栈
 # （run_teleop.sh 自己的 trap 只收键盘三节点，管不到栈）
 bash scripts/run_teleop.sh
