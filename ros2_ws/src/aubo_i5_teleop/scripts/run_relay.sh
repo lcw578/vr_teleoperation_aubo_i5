@@ -12,7 +12,8 @@ set +u
 cd /home/lcw/VR_teleoperation/ros2_ws/src/aubo_i5_teleop
 PY=/home/lcw/tomato_robot/.venv/bin/python
 CERTS=/home/lcw/VR_teleoperation/certs
-LAN_IP=10.191.211.150
+LAN_IP=$(hostname -I | awk '{print $1}')   # 自动取当前 IP（手机热点重连会变，别写死）
+[ -z "$LAN_IP" ] && { echo "❌ 取不到本机 IP——Wi-Fi 连上热点了吗？"; exit 1; }
 
 cleanup() {
   for p in $(pgrep -f "vr_teleop_rela[y]" 2>/dev/null); do kill "$p" 2>/dev/null; done

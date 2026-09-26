@@ -22,6 +22,11 @@
 
   <xacro:arg name="mujoco_model" default="/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2.xml"/>
   <xacro:arg name="initial_keyframe" default="ready"/>
+  <!-- headless=true：MuJoCo 不开交互窗口（2026-09-26 新增）。
+       为什么：交互窗口与离屏相机渲染抢 GPU（窗口 60fps 带阴影持续渲染），
+       实测把三路相机从 30Hz 压到 3.5Hz。录制栈（run_demo.sh）必须 true；
+       要看交互窗口改回 false，代价是相机帧率。 -->
+  <xacro:arg name="headless" default="false"/>
   <!-- 臂的命令接口类型：position（默认）或 velocity。
        必须与 MJCF 的执行器类型、以及被激活的控制器三者一致，
        否则 mujoco_ros2_control 会在 register_urdf_joints 里抛异常并 abort。 -->
@@ -153,6 +158,7 @@
       <plugin>mujoco_ros2_control/MujocoSystemInterface</plugin>
       <param name="mujoco_model">$(arg mujoco_model)</param>
       <param name="initial_keyframe">$(arg initial_keyframe)</param>
+      <param name="headless">$(arg headless)</param>
     </hardware>
 
     <xacro:aubo_joint_iface joint_name="shoulder_joint"/>

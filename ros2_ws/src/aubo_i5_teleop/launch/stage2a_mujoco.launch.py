@@ -61,6 +61,10 @@ def launch_setup(context, *args, **kwargs):
             # register_urdf_joints 里抛异常并 abort（实测过）。
             "arm_control_mode:=",
             LaunchConfiguration("arm_control_mode"),
+            " ",
+            # headless=true：不开交互窗口，GPU 让给三路相机渲染（录制栈用）
+            "headless:=",
+            LaunchConfiguration("headless"),
         ]
     )
     robot_description = {
@@ -205,6 +209,12 @@ def generate_launch_description():
                             "三处必须一致：本参数、mujoco_model、以及 stage3 的 output_mode。"
                             "切到速度模式（仅作对照，非默认）：arm_control_mode:=velocity "
                             "mujoco_model:=…/scene_ros2_velocity.xml，且 stage3 用 output_mode:=velocity。",
+            ),
+            DeclareLaunchArgument(
+                "headless",
+                default_value="false",
+                description="MuJoCo 无窗口运行（true 时 GPU 让给离屏相机渲染，"
+                            "否则交互窗口把三路相机压到 ~3.5Hz）。录制栈必须 true。",
             ),
             OpaqueFunction(function=launch_setup),
         ]
