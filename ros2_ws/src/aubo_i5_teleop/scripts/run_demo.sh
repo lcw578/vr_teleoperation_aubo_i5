@@ -54,6 +54,7 @@ cleanup_stack() {
               "stage3_pose_tracking.launch.py" "add_scene_floor.py" \
               "go_ready.py" "servo_interface.py" "servo_pose_tracking" \
               "multi_camera_renderer.py" "session_manager.py" \
+              "clutch_mapper_node" "gripper_fsm_node" "vr_pose_client" \
               "move_group" "ros2_control_node" "rviz2")
   for pat in "${pats[@]}"; do
     for p in $(pgrep -f "$pat"); do kill -TERM "$p" 2>/dev/null; done
@@ -132,9 +133,13 @@ wait_topic_pub() {            # $1 = 话题名
   echo "❌ 等不到 $1 的发布者"; return 1
 }
 
-echo "########## 1/3 起 stage2a（位置模式，演示场景）##########"
+echo "########## 1/3 起 stage2a（位置模式，演示场景，无窗口）##########"
+# headless:=true：不开交互窗口——窗口与三路相机渲染抢 GPU（实测 30Hz→3.5Hz）。
+# 操作者看画面用相机流：ros2 run rqt_image_view rqt_image_view
+# 想看交互窗口：改回 headless:=false（代价：相机掉到 ~3.5Hz）
 setsid ros2 launch aubo_i5_teleop stage2a_mujoco.launch.py \
   arm_control_mode:=position \
+  headless:=true \
   mujoco_model:="$DEMO_SCENE" > ${LOG}_2a.log 2>&1 &
 wait_controller forward_command_controller_position || exit 1
 wait_controller gripper_controller || exit 1
@@ -167,7 +172,7 @@ echo "########## 3/3 起 stage3（position 输出）+ 键盘 ##########"
 setsid ros2 launch aubo_i5_teleop stage3_pose_tracking.launch.py output_mode:=position \
   > ${LOG}_3.log 2>&1 &
 wait_topic_pub /forward_command_controller_position/commands || exit 1
-echo "栈就绪，进入键盘遥操。"
+echo "栈就绪。"
 echo "──────────────────────────── 键位速查 ────────────────────────────"
 echo "  会话：P = 开始/暂停/恢复录制    Esc = 结束当前录制段"
 echo "  抓取：空格 = 离合（按住才动）   Z = 夹爪开/闭"
@@ -176,4 +181,15 @@ echo "  录制状态看本终端的周期日志（session=recording 即在录）
 echo "──────────────────────────────────────────────────────────────"
 # 不用 exec：退出后本脚本的 EXIT 陷阱还要收摊整个栈
 # （run_teleop.sh 自己的 trap 只收键盘三节点，管不到栈）
-bash scripts/run_teleop.sh
+if [ "${1:-}" = "--vr" ]; then
+  # ── VR 模式：手柄位姿/按键经 relay 适配器进入同一契约 ──
+  # 前置：vr-teleop-relay 已在运行（USB: adb reverse tcp:8443 tcp:8443 后
+  #       vr-teleop-relay；或局域网 HTTPS 路线，见 HEADSET_SETUP.md §B）
+  echo "VR 模式：起映射器 + 夹爪 FSM + 手柄适配器（Quest 浏览器 Start Teleop 后数据流开始）"
+  "$PY" scripts/clutch_mapper_node.py > /tmp/teleop_mapper.log 2>&1 &
+  "$PY" scripts/gripper_fsm_node.py  > /tmp/teleop_gripper.log 2>&1 &
+  sleep 1
+  "$PY" scripts/vr_pose_client.py --ws-url ws://localhost:8443/ws
+else
+  bash scripts/run_teleop.sh
+fi
