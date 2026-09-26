@@ -24,3 +24,4 @@ assets/aubo_i5/.probe_*.xml
 # ── Python / 编辑器杂项 ───────────────────────────────────────────
 __pycache__/
 *.pyc
+certs/

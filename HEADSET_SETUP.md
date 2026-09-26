@@ -62,7 +62,40 @@
 
 不侧载 APK、不装 App、不配置手势追踪（用手柄）、不装开发工具（USB 调试授权除外）。
 
-## 剩余清单（截至 2026-09-26）
+## 剩余清单（2026-09-26 更新：PC 侧 relay 已就绪）
+
+**PC 侧已完成（无需再做）**：relay 依赖装入 venv、TLS 证书已生成（certs/，已 gitignore）、
+`scripts/run_relay.sh` 启动脚本、HTTPS 页面冒烟测试 HTTP 200（25 KB WebXR 页面正常服务）。
+**PC 局域网 IP = `10.191.211.150`**（变了改 run_relay.sh）。
+
+### 当天操作序列（照抄即可）
+
+| # | 谁 | 操作 | 验证 |
+|---|---|---|---|
+| 1 | 头显 | Wi-Fi 连到与 PC 同一路由 | 浏览器能开网页 |
+| 2 | 头显 | 插 USB 线 → 弹窗"允许 USB 调试"（勾选始终） | PC `adb devices` 见设备 |
+| 3 | 头显 | Guardian 边界（首次会引导） | — |
+| 4 | PC | `bash scripts/run_relay.sh`（LAN）或 `usb`（USB 模式+`adb reverse tcp:8443 tcp:8443`） | 脚本打印地址 |
+| 5 | 头显 | 浏览器开 `https://10.191.211.150:8443/`（USB: `http://localhost:8443/`）→ 首次接受"不安全"警告 | 页面状态条显示已连接 |
+| 6 | 头显 | 点 **Enter VR**，戴头显 | 头显内看到 VR 视图+双手柄模型 |
+| 7 | 头显 | **Calibrate wrist**：双手同时握紧 grip → 手腕不动转手掌 5 秒 | 页面状态从 calibrating 变 ok |
+| 8 | 头显 | 点 **Start Teleop** | PC 侧开始收到位姿流（我来量频率/延迟/丢包） |
+| 9 | PC | 写适配器（xr_frame → PoseStamped+Joy，半天）→ 接映射器 | 11 项验收重跑 |
+| 10 | 头显 | 首飞：按住 Grip 移动手柄，RViz 里看臂跟随 | — |
+
+**操控语义**：按住 Grip（侧键）= 离合接管，松开=急停；Trigger（食指）= 夹爪开/闭；
+转动头部/手柄的朝向变化由映射器自动 yaw 修正（每接合一次）。
+
+### 故障速查
+
+| 症状 | 检查 |
+|---|---|
+| 页面打不开 | 同一路由？IP 变了？PC 防火墙 8443？ |
+| Enter VR 失败 | 必须是安全上下文（HTTPS/localhost ✓ 已配）；Quest 浏览器版本 |
+| 位姿流不到 PC | relay 日志 /tmp/teleop_mapper 同级；WebSocket 断开重连 |
+| 手柄不追踪 | 电池、头显视角内、离开边界 |
+
+## 历史清单（截至 2026-09-26）
 
 | 项 | 说明 |
 |---|---|
