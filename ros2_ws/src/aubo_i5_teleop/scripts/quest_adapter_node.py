@@ -42,13 +42,16 @@ FRAME = "quest_world"
 # 每手 10 按钮。client.js 按 WebXR gamepad 顺序上送，标签（v1.0 源码）：
 #   0 trigger(食指, 模拟量 v)  1 squeeze/grip(侧键, 模拟量)  2 thumbstick 按压
 #   3 A/X  4 B/Y  5 thumbrest 触碰  6 menu  7-9 保留
-# ⚠️ 2026-09-26 真头显实测（原始按键指纹分析）：client.js 的按钮序不是标准
-# gamepad 序！左手实测指纹：0=Trigger(模拟量)、7=Grip 侧键(恒 1.00 当按住)、
-# 4=可按压键、8/9/10=摇杆/触板。0/7 确认；A/B 的索引待 --probe 实测。
+# 键位实锤（2026-09-27 依据上游源码 client.js L1466 原文：
+#   "Quest controller buttons[1] is 'grip' (analog 0..1 .value)"）：
+#   0=Trigger(模拟量)  1=Grip(模拟量)  2=摇杆按压  3=A/X  4=B/Y
+#   5=thumbrest 触碰  6=menu  7-9=摇杆分量。
+# ⚠️ 历史：曾按"原始指纹"把 Grip 定为 7——那是 thumbrest 触碰（手握柄即恒
+#   true），造成"不按离合也跟随"与无意接管，导致臂被拖进自折叠陷阱。已改正。
 BTN_TRIGGER = 0
-BTN_GRIP = 7
-BTN_PRIMARY = 4       # 待 probe 确认（可能是 A/X）
-BTN_SECONDARY = 5     # 待 probe 确认（可能是 B/Y）
+BTN_GRIP = 1
+BTN_PRIMARY = 3       # A（右手）/ X（左手）
+BTN_SECONDARY = 4     # B（右手）/ Y（左手）
 
 
 def quat_wxyz_to_xyzw(q):
