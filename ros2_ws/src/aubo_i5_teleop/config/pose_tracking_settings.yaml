@@ -79,13 +79,17 @@ windup_limit: 0.05
 x_proportional_gain: 30.0
 y_proportional_gain: 30.0
 z_proportional_gain: 30.0
-x_integral_gain: 0.0
-y_integral_gain: 0.0
-z_integral_gain: 0.0
-x_derivative_gain: 0.0
-y_derivative_gain: 0.0
-z_derivative_gain: 0.0
+# 2026-09-27 对照 LARA（lara_moveit_servo/config/pose_tracking_settings.yaml：
+# I=1.0/D=0.1）补积分与微分：VR 目标流的高频分量曾把内环激励成极限环
+# （关节速度 p50 2.16 / 峰值 4.84 rad/s，超厂商限值）。I 消除稳态差并让
+# 振荡收敛，D 提供阻尼。待真头显对照验证。
+x_integral_gain: 1.0
+y_integral_gain: 1.0
+z_integral_gain: 1.0
+x_derivative_gain: 0.1
+y_derivative_gain: 0.1
+z_derivative_gain: 0.1
 
 angular_proportional_gain: 30.0
-angular_integral_gain: 0.0
-angular_derivative_gain: 0.0
+angular_integral_gain: 1.0
+angular_derivative_gain: 0.1

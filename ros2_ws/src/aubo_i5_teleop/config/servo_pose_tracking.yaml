@@ -59,7 +59,11 @@ publish_joint_accelerations: false
 ## Plugins for smoothing outgoing commands
 # 注意：Servo **要求**此插件存在（设空会 "A smoothing plugin is required." 并 SIGABRT）。
 # 它的系数参数是 butterworth_filter_coeff，读的是**节点根命名空间**（插件 ParamListener
-# 的 prefix 默认为空），默认值 1.5；写在这个 moveit_servo 块里不会生效，所以这里不写。
+# 的 prefix 默认为空），默认 1.5——此前一直跑的是这个默认值！
+# 2026-09-27 对照 LARA（low_pass_filter_coeff: 30）显式置 15：VR 目标流高频全量
+# 进内环是极限环（关节 p50 2.16 / 峰值 4.84 rad/s）的结构成因之一。
+# ⚠️ 必须写在**顶层**（不是 moveit_servo 块内），见 launch 合并逻辑。
+butterworth_filter_coeff: 15.0
 smoothing_filter_plugin_name: "online_signal_smoothing::ButterworthFilterPlugin"
 
 ## MoveIt properties

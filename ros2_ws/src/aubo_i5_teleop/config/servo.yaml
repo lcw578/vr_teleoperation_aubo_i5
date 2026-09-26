@@ -49,7 +49,9 @@ smoothing_filter_plugin_name: "online_signal_smoothing::ButterworthFilterPlugin"
 # ⚠️ Servo **要求**这个插件必须存在（设成 "" 会直接报 "A smoothing plugin is required" 并退出），
 #    所以滤波器不能禁用。头文件说明：系数 < 1.0 会让滤波器不稳定；**系数越小越不平滑**。
 #    这里显式设成 1.0 = 最小平滑，以排除它对输出的影响。
-butterworth_filter_coeff: 1.0
+butterworth_filter_coeff: 15.0  # 2026-09-27 对照 LARA（low_pass_filter_coeff: 30）由 1→15：
+                                # coeff=1 ≈ 透明滤波，VR 目标流高频全量进内环是极限环的
+                                # 结构成因之一；15 在"平滑跟随"与"相位滞后"之间取衡
 
 ## ---- MoveIt 相关 ----
 move_group_name: manipulator        # 官方驱动的 SRDF 组名（LARA 是 arm）
