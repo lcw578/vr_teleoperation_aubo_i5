@@ -56,8 +56,9 @@ TARGET_TOPIC = "/target_pose"
 RATE_HZ = 100.0
 POSE_STALE_DISENGAGE = 0.3     # 输入断流自动脱离（秒）
 FRESH_ENGAGE = 0.2             # 接合要求的 pose/FK 新鲜度（秒）
-SCALE_FINE = 0.1               # 微调档（1:10，Quest 手柄活动范围大）
-SCALE_COARSE = 0.5             # 常规档（1:2——Quest 手柄 ~0.6 m 活动范围对 ~0.9 m 臂展，1:1 太野）
+SCALE_FINE = 0.1               # 微调档（1:10）
+SCALE_COARSE = 0.33            # 常规档（1:3）：2026-09-27 首飞实测 1:2 下手部自然挥动就
+                               # 把关节推到 3-4.8 rad/s（厂商限值 2.6/3.1）→ 极限环震荡
 QD_WARN = 0.5                  # 接合时关节速度警告阈值 (rad/s)
 
 STATUS_MEANING = {0: "无警告", 1: "奇异降速", 2: "奇异急停", 3: "碰撞降速",
@@ -88,6 +89,8 @@ class ClutchMapperNode(Node):
         if scale_coarse is not None:
             self.scale = scale_coarse
         self._last_tgt_p = None            # 最后发布的基准（重接合锚点用）
+        self._smooth_p = None              # EMA 平滑后的发送位姿（抗手抖/抗极限环）
+        self.SMOOTH_ALPHA = 0.35           # 100 Hz tick 下 ~8 Hz 截止（0.35@100Hz）
         self._last_tgt_q_wxyz = None
         self._last_tgt_time = 0.0
         self._ctrl_p = None
@@ -169,6 +172,7 @@ class ClutchMapperNode(Node):
             src = "最后基准"
         self.mapper.engage(self._ctrl_p, self._ctrl_q_wxyz, anchor_p, anchor_q)
         self._engaged = True
+        self._smooth_p = None              # 新会话从锚点重新起步
         qd = max(abs(self._q[j][1]) for j in GROUP)
         warn = "（⚠️ 臂运动中接合）" if qd > QD_WARN else ""
         self.get_logger().info("接合：锚点末端 (%.3f, %.3f, %.3f) [%s]%s"
@@ -198,7 +202,7 @@ class ClutchMapperNode(Node):
             self.mapper.scale = self.scale
             self.mapper.scale_rotation = self.scale
             self.get_logger().info("缩放 → %s" % (
-                "1:2" if self.scale == SCALE_COARSE else "1:10 微调"))
+                "1:3" if self.scale == SCALE_COARSE else "1:10 微调"))
         self._prev_scale_btn = self._joy_buttons[2]
 
         pose_fresh = (self._pose_arrival and now - self._pose_arrival < FRESH_ENGAGE)
@@ -232,6 +236,14 @@ class ClutchMapperNode(Node):
         if out is None:
             return
         tp, tq = out
+        # 逐 tick EMA 平滑（位置）：目标直通时手部高频抖动会全量传到臂
+        # （2026-09-27 取证：关节速度 p50 2.16 rad/s、峰值 4.84——超厂商限值）。
+        # 接合瞬间从锚点起步（不是从旧平滑值），避免初始滑移。
+        if self._smooth_p is None:
+            self._smooth_p = np.array(tp, float)
+        self._smooth_p = (self.SMOOTH_ALPHA * np.asarray(tp, float)
+                          + (1 - self.SMOOTH_ALPHA) * self._smooth_p)
+        tp = self._smooth_p
         msg = PoseStamped()
         msg.header.frame_id = "world"
         msg.header.stamp = self.get_clock().now().to_msg()
