@@ -50,13 +50,14 @@ GROUP = ["shoulder_joint", "upperArm_joint", "foreArm_joint",
          "wrist1_joint", "wrist2_joint", "wrist3_joint"]
 TIP_OFF = np.array([-0.0405, -0.0143, 0.1492])   # ag95_base → 夹持点（已验证与 URDF 一致）
 
-POSE_TOPIC = "/mock_vr/pose"
+POSE_TOPIC = "/mock_vr/pose"     # 默认 = 键盘 Mock；Quest 时由 --input quest 切到 /quest/*
 JOY_TOPIC = "/mock_vr/joy"
 TARGET_TOPIC = "/target_pose"
 RATE_HZ = 100.0
 POSE_STALE_DISENGAGE = 0.3     # 输入断流自动脱离（秒）
 FRESH_ENGAGE = 0.2             # 接合要求的 pose/FK 新鲜度（秒）
-SCALE_FINE = 0.2               # 微调档（1:5）
+SCALE_FINE = 0.1               # 微调档（1:10，Quest 手柄活动范围大）
+SCALE_COARSE = 0.5             # 常规档（1:2——Quest 手柄 ~0.6 m 活动范围对 ~0.9 m 臂展，1:1 太野）
 QD_WARN = 0.5                  # 接合时关节速度警告阈值 (rad/s)
 
 STATUS_MEANING = {0: "无警告", 1: "奇异降速", 2: "奇异急停", 3: "碰撞降速",
@@ -76,12 +77,16 @@ _mj_bid = mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_BODY, "ag95_base")
 
 
 class ClutchMapperNode(Node):
-    def __init__(self):
+    def __init__(self, input_prefix: str = "mock_vr", scale_coarse: float | None = None):
         super().__init__("clutch_mapper")
         self.set_parameters([rclpy.parameter.Parameter("use_sim_time", value=True)])
         self.mapper = ClutchPoseMapper(rot_reach_limit=0.6, pos_reach_limit=0.25)
-        self.scale = 1.0                     # 1.0（1:1）↔ SCALE_FINE（1:5 微调）
+        if scale_coarse is not None:
+            SCALE_COARSE = scale_coarse      # CLI 覆盖（quest 默认 0.5）
+        self.scale = SCALE_COARSE            # 1:2 ↔ SCALE_FINE（1:10 微调）
         self._engaged = False
+        if scale_coarse is not None:
+            self.scale = scale_coarse
         self._last_tgt_p = None            # 最后发布的基准（重接合锚点用）
         self._last_tgt_q_wxyz = None
         self._last_tgt_time = 0.0
@@ -100,15 +105,17 @@ class ClutchMapperNode(Node):
         self._n_target = 0
         self._dbg = 0
         qos = fast_qos()
-        self.create_subscription(PoseStamped, POSE_TOPIC, self._on_pose, qos)
-        self.create_subscription(Joy, JOY_TOPIC, self._on_joy, qos)
+        self._pose_topic = "/%s/pose" % input_prefix
+        self._joy_topic = "/%s/joy" % input_prefix
+        self.create_subscription(PoseStamped, self._pose_topic, self._on_pose, qos)
+        self.create_subscription(Joy, self._joy_topic, self._on_joy, qos)
         self.create_subscription(JointState, "/joint_states", self._on_js, qos)
         self.create_subscription(Int8, "/servo_pose_tracking/status", self._on_status, qos)
         self.pub_target = self.create_publisher(PoseStamped, TARGET_TOPIC, 10)
         self.timer = self.create_timer(1.0 / RATE_HZ, self._tick)
         self.get_logger().info(
-            "clutch_mapper 就绪：脱离中。离合=buttons[0] 上升沿接合；微调 scale=%.2f；"
-            "断流 %.1f s 自动脱离" % (SCALE_FINE, POSE_STALE_DISENGAGE))
+            "clutch_mapper 就绪（输入 %s）：脱离中。离合=buttons[0] 上升沿接合；微调 scale=%.2f；"
+            "断流 %.1f s 自动脱离" % (self._pose_topic, SCALE_FINE, POSE_STALE_DISENGAGE))
 
     # ---------- 回调 ----------
     def _on_pose(self, msg):
@@ -174,6 +181,7 @@ class ClutchMapperNode(Node):
 
     # ---------- 主循环 ----------
     def _tick(self):
+        global SCALE_COARSE
         self._dbg += 1
         if self._dbg % 200 == 1:
             self.get_logger().info("DBG tick#%d: engaged=%s joy_btn=%s joy_age=%s pose_age=%s fk_age=%s"
@@ -186,10 +194,11 @@ class ClutchMapperNode(Node):
                                           now - self._joy_arrival < FRESH_ENGAGE) else 0
         # 缩放切换（上升沿，脱离/接合皆可）
         if self._prev_scale_btn == 0 and self._joy_buttons[2] == 1:
-            self.scale = SCALE_FINE if self.scale == 1.0 else 1.0
+            self.scale = SCALE_FINE if self.scale == SCALE_COARSE else SCALE_COARSE
             self.mapper.scale = self.scale
             self.mapper.scale_rotation = self.scale
-            self.get_logger().info("缩放 → %s" % ("1:1" if self.scale == 1.0 else "1:5 微调"))
+            self.get_logger().info("缩放 → %s" % (
+                "1:2" if self.scale == SCALE_COARSE else "1:10 微调"))
         self._prev_scale_btn = self._joy_buttons[2]
 
         pose_fresh = (self._pose_arrival and now - self._pose_arrival < FRESH_ENGAGE)
@@ -242,8 +251,18 @@ class ClutchMapperNode(Node):
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--input", default="mock_vr", choices=["mock_vr", "quest"],
+                    help="输入前缀：mock_vr=键盘 Mock；quest=真头显适配器")
+    ap.add_argument("--scale", type=float, default=None,
+                    help="常规档缩放（默认 quest=0.5 / mock=1.0）")
+    args = ap.parse_args()
     rclpy.init()
-    node = ClutchMapperNode()
+    sc = args.scale
+    if sc is None and args.input == "quest":
+        sc = 0.5
+    node = ClutchMapperNode(input_prefix=args.input, scale_coarse=sc)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
