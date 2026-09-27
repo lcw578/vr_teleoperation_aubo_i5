@@ -140,8 +140,7 @@ class LaraTracker(Node):
         # 目标断流 → 冻结（不再推进；继续发当前 cmd 以保持位置）
         target_live = self.target is not None and (now - self.target_time) < TARGET_STALE
         if target_live and self.js_fresh:
-            q_now = np.array([self.q[j] for j in GROUP])
-            # FK + Jacobian（在 cmd 处，即"命令轨迹"上做微分运动）
+            # FK + Jacobian（在 cmd 命令轨迹上做微分运动——不是实测 q）
             for a, v in zip(_qadr, self.cmd):
                 _mj_data.qpos[a] = v
             mujoco.mj_forward(_mj_model, _mj_data)
@@ -151,6 +150,12 @@ class LaraTracker(Node):
             e = np.concatenate([p_t - p_c, R_to_rotvec(R_t @ R_c.T)])
             e_pos = float(np.linalg.norm(e[:3]))
             e_ang = float(np.linalg.norm(e[3:]))
+            # 超工作空间保护：位置误差 > 0.45 m（臂展 0.886/2）时截断，
+            # 防止"伸直锁死"（2026-09-27 实测：末端被推到 1069 mm > 臂展 886 mm）
+            POS_ERR_MAX = 0.45
+            if e_pos > POS_ERR_MAX:
+                e[:3] *= POS_ERR_MAX / e_pos
+                e_pos = POS_ERR_MAX
             if e_pos < POS_TOL and e_ang < ANG_TOL:
                 pass                                   # 已到容差内：只保持
             else:

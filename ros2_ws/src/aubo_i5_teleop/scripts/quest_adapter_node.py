@@ -191,8 +191,8 @@ def main():
 
     # ⚠️ 线程结构修正（2026-09-27）：原来 rclpy.spin 在 daemon 线程、asyncio.run 在
     #   主线程——GIL 争抢下 spin 线程饿死，表现为"适配器在收帧（心跳涨）但 ROS
-    #   定时器/回调全部不跑"（/quest/pose 零发布）。官方推荐 rclpy.spin 放主线程，
-    #   把 asyncio 事件循环放进独立**非 daemon** 线程。
+    #   定时器/回调全部不跑"（/quest/pose 零发布）。修正后 rclpy.spin 放主线程，
+    #   asyncio 事件循环放独立线程（daemon=True：主线程退出时随进程强收）。
     import asyncio
     loop = asyncio.new_event_loop()
     ws_thread = threading.Thread(target=loop.run_until_complete,

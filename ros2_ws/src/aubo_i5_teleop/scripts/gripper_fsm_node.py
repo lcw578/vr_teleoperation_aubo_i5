@@ -19,7 +19,7 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Joy
 from std_msgs.msg import Float64MultiArray
 
-JOY_TOPIC = "/mock_vr/joy"
+JOY_TOPICS = ["/mock_vr/joy", "/quest/joy"]   # 同时订两路：键盘 Mock 与真头显（2026-09-27 功能缺口：QUEST 会话 FSM 收不到消息）
 CMD_TOPIC = "/gripper_controller/commands"
 OPEN_V = 0.0
 CLOSED_V = 0.9
@@ -41,7 +41,8 @@ class GripperFSM(Node):
         self.cmd_v = OPEN_V
         self._prev_btn = 0
         self._toggles = 0
-        self.create_subscription(Joy, JOY_TOPIC, self._on_joy, fast_qos())
+        for t in JOY_TOPICS:
+            self.create_subscription(Joy, t, self._on_joy, fast_qos())
         self.pub = self.create_publisher(Float64MultiArray, CMD_TOPIC, 10)
         self.timer = self.create_timer(1.0 / RATE_HZ, self._tick)
         self.get_logger().info("夹爪 FSM 就绪：OPEN(0.0)↔CLOSED(0.9)，斜率 %.1f/s，"

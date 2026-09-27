@@ -113,7 +113,8 @@ class ClutchMapperNode(Node):
         self.create_subscription(PoseStamped, self._pose_topic, self._on_pose, qos)
         self.create_subscription(Joy, self._joy_topic, self._on_joy, qos)
         self.create_subscription(JointState, "/joint_states", self._on_js, qos)
-        self.create_subscription(Int8, "/servo_pose_tracking/status", self._on_status, qos)
+        # 路线 B 无 /servo_pose_tracking/status 发布者（Servo 已下链）——状态日志由
+        # lara_tracker 自行维护，这里不再订阅（2026-09-27 死订阅清理）
         self.pub_target = self.create_publisher(PoseStamped, TARGET_TOPIC, 10)
         self.timer = self.create_timer(1.0 / RATE_HZ, self._tick)
         self.get_logger().info(
