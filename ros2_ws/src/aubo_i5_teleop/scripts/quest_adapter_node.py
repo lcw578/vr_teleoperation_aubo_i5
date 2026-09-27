@@ -189,15 +189,24 @@ def main():
     rclpy.init()
     node = QuestAdapter(args.probe)
 
-    spin = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
-    spin.start()
+    # ⚠️ 线程结构修正（2026-09-27）：原来 rclpy.spin 在 daemon 线程、asyncio.run 在
+    #   主线程——GIL 争抢下 spin 线程饿死，表现为"适配器在收帧（心跳涨）但 ROS
+    #   定时器/回调全部不跑"（/quest/pose 零发布）。官方推荐 rclpy.spin 放主线程，
+    #   把 asyncio 事件循环放进独立**非 daemon** 线程。
+    import asyncio
+    loop = asyncio.new_event_loop()
+    ws_thread = threading.Thread(target=loop.run_until_complete,
+                                 args=(ws_loop(node, args.uri),), daemon=True)
+    ws_thread.start()
     try:
-        asyncio.run(ws_loop(node, args.uri))
+        rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
+        loop.call_soon_threadsafe(loop.stop)
         node.destroy_node()
         rclpy.shutdown()
+        ws_thread.join(timeout=3)
     return 0
 
 

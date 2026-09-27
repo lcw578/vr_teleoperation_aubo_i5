@@ -36,21 +36,23 @@ if [ -z "$CLOCK_OK" ]; then
 fi
 echo "  /clock: $(timeout 6 ros2 topic hz /clock 2>/dev/null | grep -m1 average | awk '{print $3}') Hz"
 
-echo "[2/5] 起 stage3（butterworth=$BFC 显式注入）..."
-setsid nohup ros2 launch aubo_i5_teleop stage3_pose_tracking.launch.py \
-  output_mode:=position butterworth_filter_coeff:=$BFC > /tmp/authoritative_3.log 2>&1 &
-for _ in $(seq 1 60); do
-  ros2 node list 2>/dev/null | grep -q "servo_pose_tracking" \
-    && ros2 node list 2>/dev/null | grep -q "servo_interface" && break
-  sleep 1
-done
-sleep 3
-
-echo "[3/5] 参数验证..."
-B=$(timeout 10 ros2 param get /servo_pose_tracking butterworth_filter_coeff 2>/dev/null | tail -1 | awk '{print $4}')
-I=$(timeout 10 ros2 param get /servo_pose_tracking moveit_servo.x_integral_gain 2>/dev/null | tail -1 | awk '{print $4}')
-echo "  butterworth=$B（期望 $BFC）  x_integral=$I（期望 1.0）"
-if [ "$B" != "$BFC" ] || [ -z "$B" ]; then echo "❌ 参数不符"; exit 1; fi
+if [ "${ROUTE_B:-1}" = "1" ]; then
+  echo "[2/5] 路线 B：跳过 stage3（pose_tracking+servo_interface 已被 lara_style_tracker 替代）"
+fi
+if [ "${ROUTE_B:-1}" = "0" ]; then
+  setsid nohup ros2 launch aubo_i5_teleop stage3_pose_tracking.launch.py \
+    output_mode:=position butterworth_filter_coeff:=$BFC > /tmp/authoritative_3.log 2>&1 &
+  for _ in $(seq 1 60); do
+    ros2 node list 2>/dev/null | grep -q "servo_pose_tracking" \
+      && ros2 node list 2>/dev/null | grep -q "servo_interface" && break
+    sleep 1
+  done
+  sleep 3
+  echo "[3/5] 参数验证（路线 A）..."
+  B=$(timeout 10 ros2 param get /servo_pose_tracking butterworth_filter_coeff 2>/dev/null | tail -1 | awk '{print $4}')
+  echo "  butterworth=$B（期望 $BFC）"
+  if [ "$B" != "$BFC" ] || [ -z "$B" ]; then echo "❌ 参数不符"; exit 1; fi
+fi
 
 echo "[4/5] 归位..."
 timeout 120 $PY scripts/go_ready.py --mode position 2>&1 | grep -E "到位误差"
