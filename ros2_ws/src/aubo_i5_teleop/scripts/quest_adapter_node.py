@@ -28,6 +28,7 @@ import threading
 import time
 
 import numpy as np
+import mujoco          # R_CALIB 四元数变换需要（曾漏 import → 每帧 NameError → ws 线程死亡）
 import rclpy
 from geometry_msgs.msg import PoseStamped
 from std_msgs.msg import Float64MultiArray
