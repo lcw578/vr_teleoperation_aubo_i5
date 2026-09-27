@@ -96,9 +96,7 @@ class QuestAdapter(Node):
         self._last_log = 0.0
         self._probe = probe
         self._probe_shown = set()
-        # 发布节拍：独立 100 Hz timer 把最新帧发出去（位姿流 ~89 Hz，但对齐
-        # mock 的 100 Hz 契约；relay 收流与本发布解耦，头显抖动不打断下游节拍）
-        self.timer = self.create_timer(0.01, self._publish)
+        # （收一发一模式，无 timer——见 on_frame 内注释）
         self.get_logger().info(
             "quest_adapter 就绪：%s | %s + %s → clutch_mapper（契约与 mock 相同）"
             % ("探针模式" if probe else "正常模式", POSE_TOPIC, JOY_TOPIC))
@@ -147,6 +145,15 @@ class QuestAdapter(Node):
             self._joy_msg = joy
             self._frame_time = time.time()
             self._n_frames += 1
+        # ⚠️ 直接在收帧线程发布（2026-09-27 GIL 饥饿根除）：原 timer 回调方案下
+        #    asyncio 收帧线程霸占 GIL，rclpy.spin 线程的 timer/订阅回调全部饿死，
+        #    表现为"适配器在收帧但 ROS 零发布"。收一发一：发布率=收帧率（~90Hz），
+        #    且天然无缓存帧（stale guard 不再需要）。
+        self.pub_pose.publish(ps)
+        self.pub_joy.publish(joy)
+        yaw = self._head_yaw
+        if yaw is not None:
+            self.pub_yaw.publish(Float64MultiArray(data=[yaw]))
 
         if self._probe:
             key = tuple(joy.buttons)
@@ -155,28 +162,9 @@ class QuestAdapter(Node):
                 self.get_logger().info("probe 按键组合 %s = %s" % (
                     ["grip", "trigger", "A", "B"], joy.buttons))
 
-    def _publish(self):
-        with self._lock:
-            ps, joy, n, t = self._pose_msg, self._joy_msg, self._n_frames, self._frame_time
-        if ps is None:
-            return
-        # ⚠️ 断流保护：帧龄 >0.3 s 就停发缓存帧（2026-09-26 实测教训：头显断线后
-        #    本节点把最后一帧当活流持续发，下游以为操作者把手柄定在半空不动）
-        if time.time() - t > 0.3:
-            return
-        self.pub_pose.publish(ps)
-        self.pub_joy.publish(joy)
-        yaw = self._head_yaw
-        if yaw is not None:
-            self.pub_yaw.publish(Float64MultiArray(data=[yaw]))
-        if n and time.time() - self._last_log > 10:
-            self._last_log = time.time()
-            self.get_logger().info("已收到 %d 帧（~%.0f Hz），最新 grip/trigger = %s/%.2f"
-                                   % (n, 100.0, joy.buttons[0], joy.axes[0]))
 
-
-async def ws_loop(node: QuestAdapter, uri: str):
-    """连接 relay，收 xr_frame，喂给 on_frame。断线 2 s 重连。"""
+async def ws_loop(node, uri):
+    """连接 relay，收 xr_frame，喂给 node.on_frame。断线 2 秒重连。"""
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
