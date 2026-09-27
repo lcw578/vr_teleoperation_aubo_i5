@@ -60,12 +60,19 @@ def quat_wxyz_to_xyzw(q):
     return [q[1], q[2], q[3], q[0]]
 
 
-# ── Quest 世界系 → 臂基座系 的固定旋转（2026-09-26 实测定标）──
-# 手柄数据实测：操作者自然持柄朝任务区时，位置 y≈+1.0；而臂基座工作区在 y≈-0.8。
-# 绕 z 轴转 180°（x,y 取反，z 不变）把"Quest 前方"对到"臂前方"。
-# 四元数同样做共轭旋转：q_new = Rz180 ⊗ q_old，用 (x,y,z,w) 全负除 w。
+# ── Quest 世界系 → 臂基座系 的固定旋转 ──
+# 2026-09-27 采用上游 DEFAULT_R_CALIB（bi_quest_teleop.py L92，臂面对操作者的安装）：
+# arm_x = -quest_z（操作者前方）、arm_y = -quest_x（操作者左）、arm_z = +quest_y（上）。
+# ⚠️ 曾用 Rz180 diag(-1,-1,1)——用户实测四个方向全部错位（前推→下、上推→左、
+# 左推→后），该假设从未被验证过。上游公式对 Quest local-floor 标准语义直接成立。
 import numpy as _np
-_R_QUEST_TO_ARM = _np.diag([-1.0, -1.0, 1.0])
+# 2026-09-27 用户实测四方向标定（前推→下、上推→操作者左、左推→后），
+# 三组正交观测解出纯旋转（det=+1）：R = Rz(-90°)。
+# ⚠️ 语义：用户面朝 RViz 屏幕的坐姿下，Quest 世界系与臂基座系差 -90° 偏航。
+# 若将来操作者转身，由 clutch_mapper 的 yaw 修正（接合时锁基准）补偿。
+_R_QUEST_TO_ARM = _np.array([[0.0, 1.0, 0.0],
+                             [-1.0, 0.0, 0.0],
+                             [0.0, 0.0, 1.0]])
 
 
 def rotvec_quest_to_arm(v):
@@ -73,12 +80,15 @@ def rotvec_quest_to_arm(v):
 
 
 def quat_quest_to_arm_wxyz(qw):
-    """[w,x,y,z] 手柄姿态 → 臂基座系姿态。
-    R_new = Rz180 ⊗ R_old；四元数合成：qw_new = [cos(90°),0,0,sin(90°)] ⊗ qw。
-    Rz180 的 [w,x,y,z] = [0,0,0,1]。mju_mulQuat 慢路径不值得——手写。"""
-    w, x, y, z = qw
-    # (0,0,0,1) ⊗ (w,x,y,z) = (-z, y, -x, w)  [w,x,y,z 约定下的 Rz180 左乘]
-    return np.array([-z, y, -x, w])
+    """[w,x,y,z] 手柄姿态 → 臂基座系姿态（同一 R_CALIB 旋转）。
+    q_new = R_CALIB(wxyz) ⊗ q_old，用 mju_mulQuat 保持与 R 矩阵定义严格一致。"""
+    Rq = np.zeros(4)
+    # R_CALIB 3x3 → 四元数 [w,x,y,z]（mujoco 列主序矩阵约定：3x3 行主序展开）
+    mju_mat2Quat_from_R = np.zeros(4)
+    mujoco.mju_mat2Quat(mju_mat2Quat_from_R,
+                        np.ascontiguousarray(_R_QUEST_TO_ARM.flatten()))
+    mujoco.mju_mulQuat(Rq, mju_mat2Quat_from_R, np.asarray(qw, float))
+    return Rq
 
 
 class QuestAdapter(Node):

@@ -173,6 +173,7 @@ class LaraTracker(Node):
             e = np.concatenate([p_t - p_c, R_to_rotvec(R_t @ R_c.T)])
             e_pos = float(np.linalg.norm(e[:3]))
             e_ang = float(np.linalg.norm(e[3:]))
+            gain = 0.0
             # 超工作空间保护：位置误差 > 0.45 m 截断，防止"伸直锁死"
             POS_ERR_MAX = 0.45
             if e_pos > POS_ERR_MAX:
@@ -207,12 +208,6 @@ class LaraTracker(Node):
                                    -(JOINT_LIMIT - MARGIN), JOINT_LIMIT - MARGIN)
         self.pub.publish(Float64MultiArray(data=self.cmd.tolist()))
         self._n += 1
-        if self._n % (int(RATE_HZ) * 2) == 0:
-            dbg = "DBG cmd[0]=%.2f target_live=%s js_fresh=%s grip=%s" % (
-                self.cmd[0], target_live, self.js_fresh, self._grip_engaged)
-            if target_live and 'e_pos' in dir():
-                dbg += " e_pos=%.3f e_ang=%.3f gain=%.2f" % (e_pos, e_ang, gain)
-            self.get_logger().info(dbg)
         if self._n % (int(RATE_HZ) * 10) == 0:
             names = {0: "无警告", 1: "奇异降速", 3: "碰撞降速", 4: "碰撞急停", 5: "关节到界"}
             st = names.get(self.status, self.status) if self.status is not None else "未知"
