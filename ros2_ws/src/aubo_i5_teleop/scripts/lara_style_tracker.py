@@ -158,8 +158,11 @@ class LaraTracker(Node):
         if target_live and self._was_stale:
             self._was_stale = False
             if self._grip_engaged and self.js_fresh:
+                # 断流恢复且 Grip 仍按住：cmd 重锚到实测关节（engage 增量从零开始）
                 self.cmd = np.array([self.q[j] for j in GROUP])
                 self.get_logger().info("断流恢复且 Grip 仍按住——cmd 重锚到实测关节")
+
+        if target_live and self.js_fresh:
             # FK + Jacobian（在 cmd 命令轨迹上做微分运动——不是实测 q）
             for a, v in zip(_qadr, self.cmd):
                 _mj_data.qpos[a] = v
@@ -170,8 +173,7 @@ class LaraTracker(Node):
             e = np.concatenate([p_t - p_c, R_to_rotvec(R_t @ R_c.T)])
             e_pos = float(np.linalg.norm(e[:3]))
             e_ang = float(np.linalg.norm(e[3:]))
-            # 超工作空间保护：位置误差 > 0.45 m（臂展 0.886/2）时截断，
-            # 防止"伸直锁死"（2026-09-27 实测：末端被推到 1069 mm > 臂展 886 mm）
+            # 超工作空间保护：位置误差 > 0.45 m 截断，防止"伸直锁死"
             POS_ERR_MAX = 0.45
             if e_pos > POS_ERR_MAX:
                 e[:3] *= POS_ERR_MAX / e_pos
@@ -191,23 +193,26 @@ class LaraTracker(Node):
                 elif cond > COND_SOFT:
                     gain = (COND_HARD - cond) / (COND_HARD - COND_SOFT)
                 dt = 1.0 / RATE_HZ
-                # 阻尼最小二乘 + 增益缩放 + 步长 = 增益·dt（比例推进，收敛平滑）
                 lam = 1e-4
-                # 反极点 park（上游 decoupled_ik.py L265-267 同款）：旋转误差 >
-                # ROT_ERR_HOLD(~126°) 时最短路径方向不稳（微小抖动即翻转 180°），
-                # 停止追踪等操作者回撤——否则腕部被甩进万向锁。
-                if e_ang < ROT_ERR_HOLD:
-                    # q_rest Tikhonov 偏置（上游 mu=0.02）：把肘部翻转歧义拉向
-                    # rest 姿态，破"解出折叠构型"的歧义
-                    e_rest = Q_REST - self.cmd
-                    dq = (J.T @ np.linalg.solve(J @ J.T + lam * np.eye(6), e)
-                          + MU_REST * e_rest) * gain
-                    dq = np.clip(dq, -VMAX * dt, VMAX * dt)   # 每周期速度限幅
-                    self.cmd = np.clip(self.cmd + dq,
-                                       -(JOINT_LIMIT - MARGIN), JOINT_LIMIT - MARGIN)
-                # else：park——不推进（保持当前 cmd）
+                # 反极点 park（上游语义）：旋转误差 >126° 时置零旋转分量，
+                # 位置任务照常解——上游的 park 只作用于腕部子问题
+                if e_ang >= ROT_ERR_HOLD:
+                    e[3:] = 0.0
+                # q_rest Tikhonov 偏置（上游 mu=0.02）：破肘部翻转歧义
+                e_rest = Q_REST - self.cmd
+                dq = (J.T @ np.linalg.solve(J @ J.T + lam * np.eye(6), e)
+                      + MU_REST * e_rest) * gain
+                dq = np.clip(dq, -VMAX * dt, VMAX * dt)
+                self.cmd = np.clip(self.cmd + dq,
+                                   -(JOINT_LIMIT - MARGIN), JOINT_LIMIT - MARGIN)
         self.pub.publish(Float64MultiArray(data=self.cmd.tolist()))
         self._n += 1
+        if self._n % (int(RATE_HZ) * 2) == 0:
+            dbg = "DBG cmd[0]=%.2f target_live=%s js_fresh=%s grip=%s" % (
+                self.cmd[0], target_live, self.js_fresh, self._grip_engaged)
+            if target_live and 'e_pos' in dir():
+                dbg += " e_pos=%.3f e_ang=%.3f gain=%.2f" % (e_pos, e_ang, gain)
+            self.get_logger().info(dbg)
         if self._n % (int(RATE_HZ) * 10) == 0:
             names = {0: "无警告", 1: "奇异降速", 3: "碰撞降速", 4: "碰撞急停", 5: "关节到界"}
             st = names.get(self.status, self.status) if self.status is not None else "未知"

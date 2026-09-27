@@ -26,7 +26,8 @@ if [ -z "$CLOCK_OK" ]; then
   done
   sleep 2
   setsid nohup ros2 launch aubo_i5_teleop stage2a_mujoco.launch.py arm_control_mode:=position \
-    mujoco_model:=/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2.xml > /tmp/b2a.log 2>&1 &
+    mujoco_model:=/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2.xml \
+    headless:=true > /tmp/b2a.log 2>&1 &
   for _ in $(seq 1 90); do
     ros2 control list_controllers 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' \
       | awk '{print $1, $NF}' | grep -qx "forward_command_controller_position active" && break
