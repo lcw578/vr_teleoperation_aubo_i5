@@ -46,7 +46,14 @@ MuJoCo <position> 执行器 kp=25000/2500, dampratio=1.0（6 臂关节）+ AG95 
 【测量通道】/joint_states + MuJoCo FK（⚠️ 不用 TF——TF2 Python listener 积压 0.3–0.5 s）
 ```
 
-**为什么必须有伺服接口层**：Servo 的位置输出锚在"实测+Δ"上，任何 `error = cmd − 实测` 的下游
+**⚠️ 2026-09-27 路线转向（B）**：上述接口层方案在真头显实测中暴露结构性极限环（阶跃 ±30mm
+不收敛、qd 峰值 4.84-5.77 超厂商限值）。对照 LARA 源码 + 决定性实验（直发积分型命令流走
+78.4/80mm）后，改用 **`lara_style_tracker.py`（积分型关节位置命令，LARA 语义）**替换
+pose_tracking+servo_interface 两层。对照数据：阶跃 -80.0mm 零摆动、正弦幅值比 1.00、qd 1.84。
+§1 链路图的 Servo/接口层段保留作历史记录；**当前正式链 = quest_adapter → clutch_mapper →
+lara_style_tracker → commands**；servo_interface.py 仍在库但不在链上；I/D/滤波参数实验全部存档。
+
+**为什么曾有伺服接口层**：Servo 的位置输出锚在"实测+Δ"上，任何 `error = cmd − 实测` 的下游
 PID 的误差恒等于 Δ，对臂的真实位置是盲的（静止无保持力矩、运动中积分失控）。接口层把流还原成
 绝对轨迹，这是结构问题，调参修不了。同一结论下两条被否决的路：❌ 拉高 kp 强制增益=1（破坏启动）；
 ❌ mujoco_ros2_control 内置 PID（error≡Δ）。
