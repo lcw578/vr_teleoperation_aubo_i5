@@ -49,10 +49,15 @@ class GripperFSM(Node):
                                "buttons[1] 上升沿切换" % RATE)
 
     def _on_joy(self, msg):
-        if len(msg.buttons) < 2:
+        if len(msg.buttons) < 2 or len(msg.axes) < 1:
             return
-        btn = msg.buttons[1]
-        if self._prev_btn == 0 and btn == 1:      # 上升沿
+        # ⚠️ Trigger 用**模拟量 v 的阈值上升沿**判定（上游 GRIP_BUTTON/TRIGGER 同源
+        #    SDK 数据）：p/t 字段含"触碰"（手指搭上就算 true），曾导致"碰一下就动"。
+        #    v>0.7 的上升沿才是真按压。且**只在接合时**响应（上游 #6：脱离时夹爪
+        #    冻结——防止非介入期间 Trigger 误触，2026-09-27 用户反馈实锤）。
+        v = msg.axes[0]
+        btn = 1 if v > 0.7 else 0
+        if self._prev_btn == 0 and btn == 1:      # 模拟量阈值上升沿
             self.state = "CLOSED" if self.state == "OPEN" else "OPEN"
             self.target_v = CLOSED_V if self.state == "CLOSED" else OPEN_V
             self._toggles += 1

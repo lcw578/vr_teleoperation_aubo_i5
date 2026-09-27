@@ -30,6 +30,7 @@ import time
 import numpy as np
 import rclpy
 from geometry_msgs.msg import PoseStamped
+from std_msgs.msg import Float64MultiArray
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Joy
@@ -37,6 +38,7 @@ from sensor_msgs.msg import Joy
 RELAY_WS = "wss://127.0.0.1:8443/ws"
 POSE_TOPIC = "/quest/pose"
 JOY_TOPIC = "/quest/joy"
+HEAD_YAW_TOPIC = "/quest/head_yaw"   # 头显偏航（rad，世界系），供映射器做接合 yaw 修正
 FRAME = "quest_world"
 
 # 每手 10 按钮。client.js 按 WebXR gamepad 顺序上送，标签（v1.0 源码）：
@@ -88,6 +90,8 @@ class QuestAdapter(Node):
         self._pose_msg = None
         self._joy_msg = None
         self._n_frames = 0
+        self._head_yaw = None
+        self.pub_yaw = self.create_publisher(Float64MultiArray, HEAD_YAW_TOPIC, 10)
         self._frame_time = 0.0
         self._last_log = 0.0
         self._probe = probe
@@ -122,6 +126,13 @@ class QuestAdapter(Node):
         joy.axes = [float(rb[BTN_TRIGGER]["v"]) if BTN_TRIGGER < len(rb) else 0.0,
                     float(rb[BTN_GRIP]["v"]) if BTN_GRIP < len(rb) else 0.0]
 
+        # 头显偏航（上游 bi_quest_teleop.py L123-126 同款公式，世界系 +Y 向上）
+        viewer = msg.get("viewer") or {}
+        vo = viewer.get("orientation")
+        if vo:
+            x, y, z, w = (float(v) for v in vo)
+            self._head_yaw = math.atan2(2.0 * (w * y + x * z), 1.0 - 2.0 * (y * y + z * z))
+
         ps = PoseStamped()
         ps.header.frame_id = FRAME
         ps.header.stamp = self.get_clock().now().to_msg()
@@ -155,6 +166,9 @@ class QuestAdapter(Node):
             return
         self.pub_pose.publish(ps)
         self.pub_joy.publish(joy)
+        yaw = self._head_yaw
+        if yaw is not None:
+            self.pub_yaw.publish(Float64MultiArray(data=[yaw]))
         if n and time.time() - self._last_log > 10:
             self._last_log = time.time()
             self.get_logger().info("已收到 %d 帧（~%.0f Hz），最新 grip/trigger = %s/%.2f"

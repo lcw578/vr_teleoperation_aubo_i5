@@ -33,7 +33,7 @@ from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState, Joy
-from std_msgs.msg import Int8
+from std_msgs.msg import Float64MultiArray, Int8
 
 sys.path.insert(0, str(Path(__file__).parent))
 from clutch_pose_mapper import (ClutchPoseMapper, quat_wxyz_to_xyzw,  # noqa: E402
@@ -98,6 +98,8 @@ class ClutchMapperNode(Node):
         self._pose_arrival = None            # wall time
         self._joy_arrival = None
         self._joy_buttons = [0, 0, 0]
+        self._head_yaw = None            # 头显当前偏航（rad）
+        self._yaw_calib = None           # 标定基准 yaw（首次接合时锁定）
         self._prev_clutch = 0
         self._prev_scale_btn = 0
         self._q = {}                         # 关节名 → (pos, vel)
@@ -112,6 +114,7 @@ class ClutchMapperNode(Node):
         self._joy_topic = "/%s/joy" % input_prefix
         self.create_subscription(PoseStamped, self._pose_topic, self._on_pose, qos)
         self.create_subscription(Joy, self._joy_topic, self._on_joy, qos)
+        self.create_subscription(Float64MultiArray, "/quest/head_yaw", self._on_yaw, qos)
         self.create_subscription(JointState, "/joint_states", self._on_js, qos)
         # 路线 B 无 /servo_pose_tracking/status 发布者（Servo 已下链）——状态日志由
         # lara_tracker 自行维护，这里不再订阅（2026-09-27 死订阅清理）
@@ -155,6 +158,10 @@ class ClutchMapperNode(Node):
             self._ee_q_wxyz = qw
             self._fk_arrival = now
 
+    def _on_yaw(self, msg):
+        if msg.data and math.isfinite(msg.data[0]):
+            self._head_yaw = msg.data[0]
+
     def _on_status(self, msg):
         self._status = int(msg.data)
 
@@ -171,6 +178,18 @@ class ClutchMapperNode(Node):
                 and time.time() - self._last_tgt_time < 2.5):
             anchor_p, anchor_q = self._last_tgt_p, self._last_tgt_q_wxyz
             src = "最后基准"
+        # yaw 修正（上游 bi_quest_teleop.py L38-41 同款思路）：首次接合锁定
+        # "头显 yaw"为基准；此后每次接合把 Δyaw（操作者转过的角度）补偿进
+        # 平移参考系——操作者转身后"推离自己"仍=臂朝任务区方向走。
+        if self._yaw_calib is None and self._head_yaw is not None:
+            self._yaw_calib = self._head_yaw
+        if self._head_yaw is not None and self._yaw_calib is not None:
+            dyaw = self._head_yaw - self._yaw_calib
+            c, s_ = math.cos(-dyaw), math.sin(-dyaw)
+            R_yaw = np.array([[c, -s_, 0.0], [s_, c, 0.0], [0.0, 0.0, 1.0]])
+            self.mapper.R_trans = R_yaw @ self.mapper.R_trans
+            self.get_logger().info("yaw 修正 Δ=%.1f°（基准 %.1f°）"
+                                   % (math.degrees(dyaw), math.degrees(self._yaw_calib)))
         self.mapper.engage(self._ctrl_p, self._ctrl_q_wxyz, anchor_p, anchor_q)
         self._engaged = True
         self._smooth_p = None              # 新会话从锚点重新起步

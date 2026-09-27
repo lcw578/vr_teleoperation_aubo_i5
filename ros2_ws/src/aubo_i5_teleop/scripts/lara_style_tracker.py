@@ -34,7 +34,7 @@ import rclpy
 from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import JointState
+from sensor_msgs.msg import JointState, Joy
 from std_msgs.msg import Float64MultiArray
 
 try:
@@ -49,6 +49,9 @@ TIP_OFF = np.array([-0.0405, -0.0143, 0.1492])
 CMD_TOPIC = "/forward_command_controller_position/commands"
 TARGET_TOPIC = "/target_pose"
 
+Q_REST = np.array([-1.089254, -0.802598, 1.308255, 0.588418, 0.324607, -0.704605])
+MU_REST = 0.02              # Tikhonov 刚度（拉向 q_rest，破肘部翻转歧义；上游 mu=0.02）
+ROT_ERR_HOLD = 2.2          # 反极点 park 门限（rad，>126° 停腕；上游 rot_err_hold=2.2）
 JOINT_LIMIT = 3.04
 MARGIN = 0.1
 VMAX = np.array([2.618, 2.618, 2.618, 3.142, 3.142, 3.142])
@@ -102,12 +105,15 @@ class LaraTracker(Node):
         self.js_fresh = False
         self.target = None                # (pos np3, R np3x3)
         self.target_time = 0.0
+        self._was_stale = False           # 断流标记：恢复后首 tick 重锚（上游 needs_reanchor 同款）
+        self._grip_engaged = False        # Grip 电平（从 /quest/joy 读，供重锚判断）
         self.cmd = None                   # 当前积分命令（6,）
         self.status = None
         qos = fast_qos()
         self.create_subscription(JointState, "/joint_states", self._js, qos)
         self.create_subscription(PoseStamped, TARGET_TOPIC, self._tgt, qos)
         self.pub = self.create_publisher(Float64MultiArray, CMD_TOPIC, 10)
+        self.create_subscription(Joy, "/quest/joy", self._joy, fast_qos())
         self.timer = self.create_timer(1.0 / RATE_HZ, self._tick)
         self._n = 0
         self.get_logger().info("lara_tracker 就绪：积分型关节位置命令 → %s | "
@@ -120,6 +126,10 @@ class LaraTracker(Node):
             if name in GROUP:
                 self.q[name] = msg.position[i]
         self.js_fresh = len(self.q) == len(GROUP)
+
+    def _joy(self, msg):
+        if len(msg.buttons) >= 1:
+            self._grip_engaged = bool(msg.buttons[0])
 
     def _tgt(self, msg):
         p = msg.pose.position
@@ -139,7 +149,17 @@ class LaraTracker(Node):
             return
         # 目标断流 → 冻结（不再推进；继续发当前 cmd 以保持位置）
         target_live = self.target is not None and (now - self.target_time) < TARGET_STALE
-        if target_live and self.js_fresh:
+        # ── 断流重锚（上游 bi_quest_teleop needs_reanchor 同款）：断流发生后，
+        # 若操作者仍握 Grip，恢复的首 tick 把 cmd 重置为实测关节——engage 增量
+        # 从零开始，杜绝"断流积压→恢复后猛冲"（2026-09-26 卡死教训）。
+        if not target_live and self._grip_engaged and not self._was_stale:
+            self._was_stale = True
+            self.get_logger().warn("目标断流——冻结；恢复且 Grip 仍按住时将重锚")
+        if target_live and self._was_stale:
+            self._was_stale = False
+            if self._grip_engaged and self.js_fresh:
+                self.cmd = np.array([self.q[j] for j in GROUP])
+                self.get_logger().info("断流恢复且 Grip 仍按住——cmd 重锚到实测关节")
             # FK + Jacobian（在 cmd 命令轨迹上做微分运动——不是实测 q）
             for a, v in zip(_qadr, self.cmd):
                 _mj_data.qpos[a] = v
@@ -173,10 +193,19 @@ class LaraTracker(Node):
                 dt = 1.0 / RATE_HZ
                 # 阻尼最小二乘 + 增益缩放 + 步长 = 增益·dt（比例推进，收敛平滑）
                 lam = 1e-4
-                dq = J.T @ np.linalg.solve(J @ J.T + lam * np.eye(6), e) * gain
-                dq = np.clip(dq, -VMAX * dt, VMAX * dt)   # 每周期速度限幅
-                self.cmd = np.clip(self.cmd + dq,
-                                   -(JOINT_LIMIT - MARGIN), JOINT_LIMIT - MARGIN)
+                # 反极点 park（上游 decoupled_ik.py L265-267 同款）：旋转误差 >
+                # ROT_ERR_HOLD(~126°) 时最短路径方向不稳（微小抖动即翻转 180°），
+                # 停止追踪等操作者回撤——否则腕部被甩进万向锁。
+                if e_ang < ROT_ERR_HOLD:
+                    # q_rest Tikhonov 偏置（上游 mu=0.02）：把肘部翻转歧义拉向
+                    # rest 姿态，破"解出折叠构型"的歧义
+                    e_rest = Q_REST - self.cmd
+                    dq = (J.T @ np.linalg.solve(J @ J.T + lam * np.eye(6), e)
+                          + MU_REST * e_rest) * gain
+                    dq = np.clip(dq, -VMAX * dt, VMAX * dt)   # 每周期速度限幅
+                    self.cmd = np.clip(self.cmd + dq,
+                                       -(JOINT_LIMIT - MARGIN), JOINT_LIMIT - MARGIN)
+                # else：park——不推进（保持当前 cmd）
         self.pub.publish(Float64MultiArray(data=self.cmd.tolist()))
         self._n += 1
         if self._n % (int(RATE_HZ) * 10) == 0:
