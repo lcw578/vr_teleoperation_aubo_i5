@@ -11,54 +11,52 @@ Aubo i5 六轴机械臂 + AG95 两指夹爪的 VR 遥操作系统，**仿真先�
 
 ---
 
-## 1. 一分钟看懂整条 Pipeline
+## 1. 一分钟看懂整条 Pipeline（2026-09-27 路线 B · 正式）
 
 ```
 【输入层】
-  台架 follow_bench.py（现在，125 Hz）        ← VR 映射层（将来）同样发这里
-      │  PoseStamped @ /target_pose（world 帧，绝对位姿；Servo 层输入流超时 0.1 s
-      │  与目标超时 1.0 s ⇒ 映射层发布必须 >10 Hz 且断流≤1 s 是安全的）
+  Quest 3 手柄（WebXR，~90 Hz）——浏览器本地读取，经 relay 中继
+      │  xr_frame（JSON：双手柄位姿 + 10 按钮 + viewer 头显位姿 + t_client 时间戳）
       ▼
-【Servo 层】moveit_servo::PoseTracking（C++，官方库）
-      │  纯 P 外环（x/y/z 与 angular 均为 30，I=D=0）→ 笛卡尔速度
-      │  容差 0.01 m / 0.1 rad；5 ms 周期
+  relay（vr-teleop-kit，FastAPI/WebSocket，局域网 HTTPS 或 USB adb reverse）
       ▼
-  MoveIt Servo（官方库）
-      │  雅可比伪逆 → 关节增量 Δ（200 Hz）
-      │  奇异 50 降速/200 急停（离开 ×2.0）；碰撞降速/急停；关节到界；Butterworth≈透明
-      │  ⚠️ 输出是【锚定流】：cmd = 实测 + 单周期 Δ —— 不是绝对轨迹
+【适配】quest_adapter_node.py（100 Hz，收一发一：收帧线程直接发布，无 timer）
+      │  /quest/pose + /quest/joy + /quest/head_yaw
+      │  · R_CALIB（实测反解 Rz(-90°)）：Quest 世界系 → 臂基座系（位置+姿态同旋转）
+      │  · stale 保护：帧龄 >0.3 s 停发（头显息屏 = 下游自动冻结，安全特性）
       ▼
-  /servo_position_stream
+【映射层】clutch_mapper_node.py --input quest（100 Hz）
+      │  · Grip 按住=接合（锚点=手柄位姿+臂实测末端）；松开=脱离
+      │  · ClutchPoseMapper：滑移 reach limit（rot 0.6 rad / pos 0.25 m，超出吸收、
+      │    反向立即咬合——防伸直锁死与 180° 翻转抖振）
+      │  · yaw 修正：接合时锁头显基准偏航，Δyaw 补偿平移参考系（转身不影响方向）
+      │  · 缩放 1:3 / 1:10 微调（A 键切换，预留）
+      │  · 断流 0.3 s 自动脱离（输入端安全）
       ▼
-【伺服接口层】scripts/servo_interface.py（自研，唯一在链路上的自写控制件，200 Hz）
-      │  把锚定流积分成绝对位置命令 q_cmd（等价真机 servoj 的速度前馈步骤）
-      │  保护① |Δ|≤v_max·T（厂商 2.618/3.142 rad/s）
-      │  保护② |q_cmd−q_meas|≤0.15 rad（抗积分饱和 = 最大憋压深度）
-      │  保护③ 输入断流 >0.5 s → 重新对齐到 实测+Δ
+  /target_pose（world 帧，绝对位姿；lara_tracker 断流 0.5 s 冻结）
+      ▼
+【执行核心】lara_style_tracker.py（100 Hz，积分型关节位置命令，LARA 语义）
+      │  cmd = cmd_prev + J⁺·e·gain（阻尼最小二乘，cond>50 降速 / >200 停止）
+      │  · 反极点 park：旋转误差 >126° 只停腕部旋转、位置照常解
+      │  · q_rest Tikhonov 偏置（μ=0.02，破肘部翻转歧义）
+      │  · 关节 clip ±2.94 + 每周期 |Δ|≤v_max·dt（厂商 2.618/3.142）
+      │  · 目标断流 0.5 s 冻结（保持最后位置）
       ▼
   /forward_command_controller_position/commands
       ▼
-【被控对象】forward_command_controller → mujoco_ros2_control 插件（1 kHz 物理步长）
-      │  MuJoCo <position> 执行器 kp=25000/2500, dampratio=1.0（6 臂关节）
-      │  AG95 夹爪 = 肌腱执行器 kp=200（ctrl 0=张开，0.93=闭合）
-      │  每个刚体 gravcomp=1.0（模拟真机控制柜的重力补偿）
+【被控对象】forward_command_controller → mujoco_ros2_control（1 kHz）
+      │  MuJoCo <position> 执行器 kp=25000/2500（6 臂）+ AG95 肌腱夹爪（0=开/0.93=闭）
+      │  每刚体 gravcomp=1.0（模拟真机控制柜重力补偿）
       ▼
-  /joint_states（197 Hz，时间戳与仿真时钟差 −0.001 s）
-      ▼
-【测量通道】/joint_states + MuJoCo FK —— ⚠️ 禁止走 TF
-      （TF2 Python listener 在 197 Hz×13 变换下积压 0.3–0.5 s，伪像来源；
-        /tf 话题本身只迟 0.003 s，/joint_states 迟 −0.001 s，都 punctual）
+  /joint_states（197 Hz，时间戳偏差 −0.001 s）
 
-【规划层】move_group（stage2b）+ OMPL/Pilz —— 大范围换构型用；
-          当前执行链故意不经它（JTC 未接），只做规划场景持有者。
-```
+【测量通道】/joint_states + MuJoCo FK —— ⚠️ 禁走 TF（Python listener 积压 0.3-0.5 s）
 
-**为什么必须有伺服接口层**（结构性理由，调参修不了）：Servo 的位置输出锚在"实测+Δ"上，
-下游任何 `error = cmd − 实测` 的 PID 误差恒等于 Δ，对臂的真实位置是盲的——静止时无保持
-力矩、运动时积分失控。接口层把流还原成绝对轨迹。同一条结论否决了两条替代路：拉高执行器
-kp 强制增益=1（启动即失败）；mujoco_ros2_control 内置 PID（error≡Δ，同一盲区）。
+【已退役】PoseTracking PID + servo_interface（路线 A：锚定流+接口层组合存在
+结构性极限环，qd 峰值 4.84-5.77 超厂商限值；路线 B 对照阶跃 -78.5mm 零摆动、
+正弦 1.00、qd 1.84）。代码存档于库，不在链上。
 
----
+
 
 ## 2. 关键设计决策（以及被否决的路线）
 
@@ -66,7 +64,7 @@ kp 强制增益=1（启动即失败）；mujoco_ros2_control 内置 PID（error�
 |---|---|---|
 | 位置 vs 速度模式 | **位置模式** | 该臂不支持速度模式（用户裁定 + 驱动源码验证：厂商驱动的 velocity 接口无人读） |
 | 仿真器 | **MuJoCo**（mujoco_ros2_control 桥接 ROS 2） | 厂商 aubo_gazebo 是空壳；Gazebo Classic 死路 |
-| 控制栈 | **MoveIt Servo pose tracking**（官方库，自写 C++ 入口装配） | LARA 同类先例；自写 IK/twist 流已否决 |
+| 控制栈 | **路线 B：clutch_mapper（映射）+ lara_style_tracker（积分型关节位置命令，LARA 语义）** | 对照实验：路线 A（Servo pose tracking + 接口层）结构性极限环（qd 4.84-5.77 超限）；路线 B 阶跃 -78.5mm 稳定、正弦 1.00、qd 1.84。Servo/pose_tracking 代码存档不在链上 |
 | 大范围换构型 | **规划器（move_group/OMPL）**，VR 内靠小步+clutch | Servo 是局部控制器，会折臂进自碰撞（实测） |
 | 重力 | 每个 body `gravcomp=1.0` | 真机控制柜本来就做重力补偿，不是作弊 |
 | armature | 厂商 `equa_inertia` 字段 | A/B 实验：16.85× plant 变化但闭环不敏感 |
@@ -132,15 +130,27 @@ VR_teleoperation/
 ## 5. 快速开始
 
 ```bash
-# 起栈（自动编译 → stage2a 仿真 → stage2b MoveIt → 归位 → stage3 Servo；然后保持运行）
+# 起仿真栈（自动编译 → stage2a headless → stage2b MoveIt → 归位；无 Servo——路线 B 不需要）
 bash ros2_ws/src/aubo_i5_teleop/scripts/run_bench.sh bringup
 
 # 跑三张表（安静度 / 跟随带宽 / 端到端延迟；也可单独指定，如 `survey`）
-bash ros2_ws/src/aubo_i5_teleop/scripts/run_bench.sh            # 全部
+bash ros2_ws/src/aubo_i5_teleop/scripts/run_bench.sh            # 三张表（对照基线）
 bash ros2_ws/src/aubo_i5_teleop/scripts/run_bench.sh survey     # 只跑一张
 
 # 收摊
 bash ros2_ws/src/aubo_i5_teleop/scripts/run_bench.sh stop
+```
+
+### VR 遥操（Quest 3 头显）
+
+```bash
+# 1. 起 relay（头显页面入口）
+bash ros2_ws/src/aubo_i5_teleop/scripts/run_relay.sh
+# 2. 起 VR 执行链（tracker + adapter + mapper + FSM）
+bash ros2_ws/src/aubo_i5_teleop/scripts/restart_vr_chain.sh
+# 3. 头显浏览器打开 https://<PC-IP>:8443/ → Enter VR → 腕标定 → Start Teleop
+# 4. 按住 Grip 操控（详见 HEADSET_SETUP.md）
+# 5. 收摊：run_bench.sh stop + pkill -f quest_adapter 等（或重启）
 ```
 
 单工具用法（栈在跑时）：
@@ -162,7 +172,7 @@ $PY scripts/verify_traversal.py --pose P02             # 单条穿越复现
 |---|---|
 | `follow_bench.py` | 台架三模式：`--survey`（多点停稳安静度）/ `--sine`（跟随带宽，支持线向 x/y/z 与旋转 rx/ry/rz）/ `--latency`（端到端延迟，D1/D2/D2'/D3 四口径） |
 | `run_bench.sh` | 一键 bringup/stop/跑表 + 起栈自动编译 + 孤儿进程清理 |
-| `servo_interface.py` | 伺服接口层（在链路上）；`--selftest` 离线自检 T1–T4 |
+| `servo_interface.py` | 伺服接口层（⚠️ 路线 B 后**不在链上**，存档）；`--selftest` 离线自检 |
 | `gen_bench_poses.py` | 位姿集生成：任务区采样 + 笛卡尔路径 IK 检查 + 反向校验（种子 42 可复现） |
 | `step_probe.py` | ±20 mm 阶跃超调/整定探针（发 0.4 s 后切断让 Servo 走完，暴露完整响应） |
 | `stream_loss_test.py` | 断流安全：硬切目标流 → 走完最后目标 → 冻结 → 恢复零跳变 |
@@ -174,7 +184,13 @@ $PY scripts/verify_traversal.py --pose P02             # 单条穿越复现
 | `verify_model_vs_urdf.py` | MJCF↔厂商 URDF 逐项比对（M(q) 差 ~4e-7） |
 | `armature_ab_offline.py` | armature A/B 离线实验 |
 | `pid_gain_calib.py` / `position_actuator_kp_calib.py` | 两条被否决标定路线的存档（不在链路上） |
-| `go_ready.py` | 归位（⚠️ 必须在 stage3 停止时跑，否则与接口层在命令话题上打架） |
+| `lara_style_tracker.py` | **执行核心（路线 B，在链路上）**：积分型关节位置命令 + cond 缩放 + 反极点 park + q_rest 偏置 + 断流冻结 |
+| `quest_adapter_node.py` | relay xr_frame → /quest/pose+joy（收一发一，R_CALIB 变换，stale 保护） |
+| `clutch_mapper_node.py` | 离合映射节点（Grip 接合/reach limit/yaw 修正/缩放切换） |
+| `gripper_fsm_node.py` | 夹爪两状态 FSM（/mock_vr/joy 与 /quest/joy 双输入） |
+| `e2e_synth_test.py` / `inj_stab.py` | 合成端到端验证 / 稳定性注入测试（不依赖头显） |
+| `restart_vr_chain.sh` | VR 四节点幂等重启 + 快照 |
+| `go_ready.py` | 归位（stage3/输出链停止时直发 commands） |
 | `add_scene_floor.py` | 把地板+底盘+立柱发布进规划场景（尺寸与 MJCF 逐字联动） |
 
 ---
