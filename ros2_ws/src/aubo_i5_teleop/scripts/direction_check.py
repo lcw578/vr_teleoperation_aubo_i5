@@ -1,8 +1,14 @@
-#!/usr/bin/env python3
+#!/home/lcw/tomato_robot/.venv/bin/python
+# -*- coding: utf-8 -*-
+# 便捷入口：`bash 本文件` 也能跑——sh 把下一行解析为 exec 进 venv Python，
+# Python 把它解析为一个无操作字符串。（2026-09-28 用户实测 bash 直跑报
+# "import: 未找到命令"后加；inj_stab.py 同款）
+''''exec /bin/bash -c ". /opt/ros/humble/setup.bash 2>/dev/null || :; exec /home/lcw/tomato_robot/.venv/bin/python -- \"\$0\" \"\$@\"" "$0" "$@" # '''
 """方向自检：验证手柄→臂基座系的平移映射是否符合方位约定 A（TELEOP_BASELINE.md §2）。
 
 用法（戴头显、页面 Start Teleop 已开、【不要按 Grip】）：
-  /home/lcw/tomato_robot/.venv/bin/python scripts/direction_check.py
+  bash scripts/direction_check.py   # 推荐：自动 source ROS + exec venv Python
+  # （直接用 venv Python 跑也可以，但需先 source /opt/ros/humble/setup.bash）
 
 流程：按提示做 3 次手柄平推（前/右/上，各约 5-10 cm，一次平滑推到位）。
 脚本观察 /quest/pose（= R_CALIB 变换后的臂基座系坐标），判定每次推映射到的

@@ -1,3 +1,8 @@
+#!/home/lcw/tomato_robot/.venv/bin/python
+# -*- coding: utf-8 -*-
+# 便捷入口：`bash 本文件` 也能跑——sh 把下一行解析为 exec 进 venv Python，
+# Python 把它解析为一个无操作字符串。（2026-09-28 与 direction_check.py 同款）
+''''exec /bin/bash -c ". /opt/ros/humble/setup.bash 2>/dev/null || :; exec /home/lcw/tomato_robot/.venv/bin/python -- \"\$0\" \"\$@\"" "$0" "$@" # '''
 """注入 z-8cm 目标 10 秒，逐段量臂的 z 向位移（lara_tracker 全链稳定性终测）。"""
 import rclpy
 import time
