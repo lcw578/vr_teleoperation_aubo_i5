@@ -61,18 +61,20 @@ def quat_wxyz_to_xyzw(q):
     return [q[1], q[2], q[3], q[0]]
 
 
-# ── Quest 世界系 → 臂基座系 的固定旋转 ──
-# 2026-09-27 采用上游 DEFAULT_R_CALIB（bi_quest_teleop.py L92，臂面对操作者的安装）：
-# arm_x = -quest_z（操作者前方）、arm_y = -quest_x（操作者左）、arm_z = +quest_y（上）。
-# ⚠️ 曾用 Rz180 diag(-1,-1,1)——用户实测四个方向全部错位（前推→下、上推→左、
-# 左推→后），该假设从未被验证过。上游公式对 Quest local-floor 标准语义直接成立。
+# ── Quest 世界系 → 臂基座系 的固定旋转（方位约定 A"操作者中心"，2026-09-28 定案）──
+# 方位约定（TELEOP_BASELINE.md §2，用户拍板）：
+#   · world ≡ 臂基座系（臂焊死原点），+z 上；臂工作区方向 = 世界 -y。
+#   · 操作者标准站位 = 工作区侧（世界 -y 侧），面向 +y。
+#   · 手柄语义：前推(-z) → 末端远离操作者 = 世界 +y；右推(+x) → 世界 +x；上抬(+y) → +z。
+# 解得 R = Rx(+90°)。逐轴验证：前(-z)→+y ✓、右(+x)→+x ✓、上(+y)→+z ✓、
+# 左(-x)→-x ✓、下(-y)→-z ✓（det=+1）。
+# ⚠️ R_CALIB 不存在普适值——它取决于操作者站位与 Quest 重定向朝向（上游
+#   bi_quest_teleop.py L87-91 原文："Derived empirically for the original lab
+#   mounting; override if your robot faces the operator differently"）。
+#   换站位/换朝向后必须用 scripts/direction_check.py 复核三方向。
+# ⚠️ 错误历史：Rz180（未验证）→ Rz(-90°)（未按位姿链路验证）→ 86b4400 Rx(+90°)
+#   （矩阵正确，但其注释"验证表"前(-z)→-y 为 det=-1 镜像、与矩阵不符，已废弃）。
 import numpy as _np
-# 2026-09-28 数学定案：Quest local-floor 与臂基座系之间唯一正确的纯旋转。
-# WebXR local-floor：+x=右, +y=上, -z=前（操作者面朝-z）
-# 臂基座系：-y=前（任务区）, +x=右, +z=上
-# 映射：Quest 前推(-z)→臂前(-y)、Quest 上(+y)→臂上(+z)、Quest 右(+x)→臂右(+x)
-# 解出：R = Rx(+90°)。验证：前(-z)→-y ✓、上(+y)→+z ✓、右(+x)→+x ✓
-# ⚠️ 此前错误历史：Rz180（未验证）→ Rz(-90°)（未验证）→ Rx(+90°)（数学定案）
 _R_QUEST_TO_ARM = _np.array([[1.0, 0.0, 0.0],
                              [0.0, 0.0, -1.0],
                              [0.0, 1.0, 0.0]])
@@ -95,10 +97,15 @@ def quat_quest_to_arm_wxyz(qw):
 
 
 class QuestAdapter(Node):
-    def __init__(self, probe: bool):
+    def __init__(self, probe: bool, raw: bool = False):
         super().__init__("quest_adapter")
         self.pub_pose = self.create_publisher(PoseStamped, POSE_TOPIC, 10)
         self.pub_joy = self.create_publisher(Joy, JOY_TOPIC, 10)
+        # --raw：额外发原始 Quest local-floor 坐标（未经 R_CALIB）——标定/诊断工具用，
+        # 主链不消费。/quest/pose 永远是变换后的臂基座系坐标，禁止标定脚本直接读它。
+        self._raw = raw
+        self.pub_raw = self.create_publisher(PoseStamped, POSE_TOPIC + "_raw", 10) \
+            if raw else None
         self._lock = threading.Lock()
         self._pose_msg = None
         self._joy_msg = None
@@ -123,7 +130,7 @@ class QuestAdapter(Node):
             return
         p_q = np.asarray(right["position"], float)
         q_q = np.asarray(right["orientation"], float)   # [w,x,y,z]
-        # Quest 系 → 臂基座系（固定 Rz180）：位置向量直接乘；四元数左乘 Rz180
+        # Quest 系 → 臂基座系（R_CALIB，约定 A）：位置向量左乘；四元数左乘同 R
         p = (_R_QUEST_TO_ARM @ p_q).tolist()
         q = quat_quest_to_arm_wxyz(q_q)
         # Joy：右手柄为主手。buttons = [grip 电平, trigger 电平, A, B]
@@ -164,6 +171,15 @@ class QuestAdapter(Node):
         #    且天然无缓存帧（stale guard 不再需要）。
         self.pub_pose.publish(ps)
         self.pub_joy.publish(joy)
+        if self.pub_raw is not None:
+            raw = PoseStamped()
+            raw.header.frame_id = "quest_local_floor"
+            raw.header.stamp = ps.header.stamp
+            raw.pose.position.x, raw.pose.position.y, raw.pose.position.z = p_q.tolist()
+            rx, ry, rz, rw = quat_wxyz_to_xyzw(q_q)
+            raw.pose.orientation.x, raw.pose.orientation.y = rx, ry
+            raw.pose.orientation.z, raw.pose.orientation.w = rz, rw
+            self.pub_raw.publish(raw)
         yaw = self._head_yaw
         if yaw is not None:
             self.pub_yaw.publish(Float64MultiArray(data=[yaw]))
@@ -198,11 +214,13 @@ async def ws_loop(node, uri):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--probe", action="store_true", help="打印按键组合（标定按钮语义用）")
+    ap.add_argument("--raw", action="store_true",
+                    help="额外发布原始 Quest 坐标到 /quest/pose_raw（标定/诊断用）")
     ap.add_argument("--uri", default=RELAY_WS)
     args = ap.parse_args()
 
     rclpy.init()
-    node = QuestAdapter(args.probe)
+    node = QuestAdapter(args.probe, raw=args.raw)
 
     # ⚠️ 线程结构修正（2026-09-27）：原来 rclpy.spin 在 daemon 线程、asyncio.run 在
     #   主线程——GIL 争抢下 spin 线程饿死，表现为"适配器在收帧（心跳涨）但 ROS

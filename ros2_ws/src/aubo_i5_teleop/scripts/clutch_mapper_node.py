@@ -78,10 +78,15 @@ _mj_bid = mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_BODY, "ag95_base")
 
 
 class ClutchMapperNode(Node):
-    def __init__(self, input_prefix: str = "mock_vr", scale_coarse: float | None = None):
+    def __init__(self, input_prefix: str = "mock_vr", scale_coarse: float | None = None,
+                 yaw_comp: bool = False):
         super().__init__("clutch_mapper")
         self.set_parameters([rclpy.parameter.Parameter("use_sim_time", value=True)])
         self.mapper = ClutchPoseMapper(rot_reach_limit=0.6, pos_reach_limit=0.25)
+        # head-yaw 平移补偿默认关闭（2026-09-28 定案）：头显里没有场景画面、操作者
+        # 扭头看外接屏就会触发 Δyaw——把"看一眼屏幕"误当"转身"，映射被永久转走。
+        # 等头显内视频回传上线后再用 --yaw-comp 打开。
+        self._yaw_comp = yaw_comp
         if scale_coarse is not None:
             SCALE_COARSE = scale_coarse      # CLI 覆盖（quest 默认 0.5）
         self.scale = SCALE_COARSE            # 1:2 ↔ SCALE_FINE（1:10 微调）
@@ -122,7 +127,9 @@ class ClutchMapperNode(Node):
         self.timer = self.create_timer(1.0 / RATE_HZ, self._tick)
         self.get_logger().info(
             "clutch_mapper 就绪（输入 %s）：脱离中。离合=buttons[0] 上升沿接合；微调 scale=%.2f；"
-            "断流 %.1f s 自动脱离" % (self._pose_topic, SCALE_FINE, POSE_STALE_DISENGAGE))
+            "断流 %.1f s 自动脱离；head-yaw 补偿=%s"
+            % (self._pose_topic, SCALE_FINE, POSE_STALE_DISENGAGE,
+               "开" if self._yaw_comp else "关（默认）"))
 
     # ---------- 回调 ----------
     def _on_pose(self, msg):
@@ -181,14 +188,16 @@ class ClutchMapperNode(Node):
         # yaw 修正（上游 bi_quest_teleop.py L38-41 同款思路）：首次接合锁定
         # "头显 yaw"为基准；此后每次接合把 Δyaw（操作者转过的角度）补偿进
         # 平移参考系——操作者转身后"推离自己"仍=臂朝任务区方向走。
-        if self._yaw_calib is None and self._head_yaw is not None:
-            self._yaw_calib = self._head_yaw
-        if self._head_yaw is not None and self._yaw_calib is not None:
+        # ⚠️ 2026-09-28 两处修正：① 必须用【绝对式覆写】R_trans = Rz(-Δyaw)，
+        #    旧代码 R_yaw @ R_trans 跨接合累乘、而 Δyaw 永远相对同一基准——
+        #    扭头再接合就把映射永久转走且不回来；② 默认整体关闭（见 __init__）。
+        if self._yaw_comp and self._head_yaw is not None:
+            if self._yaw_calib is None:
+                self._yaw_calib = self._head_yaw
             dyaw = self._head_yaw - self._yaw_calib
             c, s_ = math.cos(-dyaw), math.sin(-dyaw)
-            R_yaw = np.array([[c, -s_, 0.0], [s_, c, 0.0], [0.0, 0.0, 1.0]])
-            self.mapper.R_trans = R_yaw @ self.mapper.R_trans
-            self.get_logger().info("yaw 修正 Δ=%.1f°（基准 %.1f°）"
+            self.mapper.R_trans = np.array([[c, -s_, 0.0], [s_, c, 0.0], [0.0, 0.0, 1.0]])
+            self.get_logger().info("yaw 修正（绝对覆写）Δ=%.1f°（基准 %.1f°）"
                                    % (math.degrees(dyaw), math.degrees(self._yaw_calib)))
         self.mapper.engage(self._ctrl_p, self._ctrl_q_wxyz, anchor_p, anchor_q)
         self._engaged = True
@@ -289,12 +298,15 @@ def main():
                     help="输入前缀：mock_vr=键盘 Mock；quest=真头显适配器")
     ap.add_argument("--scale", type=float, default=None,
                     help="常规档缩放（默认 quest=0.5 / mock=1.0）")
+    ap.add_argument("--yaw-comp", action="store_true",
+                    help="启用 head-yaw 平移补偿（默认关——头显内有场景画面后再开）")
     args = ap.parse_args()
     rclpy.init()
     sc = args.scale
     if sc is None and args.input == "quest":
         sc = 0.5
-    node = ClutchMapperNode(input_prefix=args.input, scale_coarse=sc)
+    node = ClutchMapperNode(input_prefix=args.input, scale_coarse=sc,
+                            yaw_comp=args.yaw_comp)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

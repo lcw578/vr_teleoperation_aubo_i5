@@ -22,8 +22,8 @@ Aubo i5 六轴机械臂 + AG95 两指夹爪的 VR 遥操作系统，**仿真先�
       ▼
 【适配】quest_adapter_node.py（100 Hz，收一发一：收帧线程直接发布，无 timer）
       │  /quest/pose + /quest/joy + /quest/head_yaw
-      │  · R_CALIB（实测反解 Rz(-90°)）：Quest 世界系 → 臂基座系（位置+姿态同旋转）
-      │  · stale 保护：帧龄 >0.3 s 停发（头显息屏 = 下游自动冻结，安全特性）
+      │  · R_CALIB = Rx(+90°)（方位约定 A 解出，2026-09-28；见 TELEOP_BASELINE §2）
+      │    Quest 世界系 → 臂基座系（位置+姿态同旋转）；息屏冻结由下游 stale 双保险承担
       ▼
 【映射层】clutch_mapper_node.py --input quest（100 Hz）
       │  · Grip 按住=接合（锚点=手柄位姿+臂实测末端）；松开=脱离
@@ -185,8 +185,9 @@ $PY scripts/verify_traversal.py --pose P02             # 单条穿越复现
 | `armature_ab_offline.py` | armature A/B 离线实验 |
 | `pid_gain_calib.py` / `position_actuator_kp_calib.py` | 两条被否决标定路线的存档（不在链路上） |
 | `lara_style_tracker.py` | **执行核心（路线 B，在链路上）**：积分型关节位置命令 + cond 缩放 + 反极点 park + q_rest 偏置 + 断流冻结 |
-| `quest_adapter_node.py` | relay xr_frame → /quest/pose+joy（收一发一，R_CALIB 变换，stale 保护） |
-| `clutch_mapper_node.py` | 离合映射节点（Grip 接合/reach limit/yaw 修正/缩放切换） |
+| `quest_adapter_node.py` | relay xr_frame → /quest/pose+joy（收一发一，R_CALIB=Rx(+90°) 变换；`--raw` 发原始坐标） |
+| `direction_check.py` | 方向自检（约定 A 三向：前推=+y/右推=+x/上抬=+z，不按 Grip 纯观察） |
+| `clutch_mapper_node.py` | 离合映射节点（Grip 接合/reach limit/缩放切换；yaw 补偿默认关） |
 | `gripper_fsm_node.py` | 夹爪两状态 FSM（/mock_vr/joy 与 /quest/joy 双输入） |
 | `e2e_synth_test.py` / `inj_stab.py` | 合成端到端验证 / 稳定性注入测试（不依赖头显） |
 | `restart_vr_chain.sh` | VR 四节点幂等重启 + 快照 |

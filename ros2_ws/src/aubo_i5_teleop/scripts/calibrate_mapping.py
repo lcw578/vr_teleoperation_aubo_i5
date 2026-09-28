@@ -1,6 +1,17 @@
 #!/usr/bin/env python3
 """手柄方向标定：自动求解 R_CALIB（Quest 世界系 → 臂基座系的固定旋转）。
 
+⚠️ 2026-09-28 起退役（保留存档，勿用于现役标定）：
+  1. 方位约定 A 已定案（TELEOP_BASELINE.md §2），R_CALIB=Rx(+90°) 由约定直接
+     解出，不再需要经验标定；日常复核用 scripts/direction_check.py。
+  2. 本脚本逻辑有缺陷：arm_delta 是【当前映射】下臂的实际响应，对
+     (quest_delta, arm_delta) 解 Kabsch 得到的是现状旋转的复制，不是期望映射
+     ——即使跑通也修不了一个错的 R_CALIB。
+  3. 正确的经验标定做法（若将来真需要）：让操作者按"期望末端方向"移动，
+     用 (原始 quest_delta, 期望 arm_delta) 对求解——原始坐标走
+     quest_adapter --raw 的 /quest/pose_raw。
+
+
 为什么需要这个：坐标映射链的三层旋转（R_CALIB + R_align + R_yaw）中，
 R_CALIB 是唯一固定的——但它取决于操作者站位朝向和臂安装方向，无法
 理论推导。上游 vr-teleop-kit 的 DEFAULT_R_CALIB 也标注 "Derived empirically"。

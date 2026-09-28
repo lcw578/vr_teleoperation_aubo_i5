@@ -275,7 +275,10 @@ Visualization Manager:
       Pitch: 0.24039830267429352
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 1.2003977298736572
+      # 机位约定（TELEOP_BASELINE.md §2）：操作者站在工作区侧（世界 -y 侧）面向 +y。
+      # Yaw=-pi/2 → 相机在 -y 侧，屏幕右=+x、屏幕里=+y，与手柄映射（A 方案）同构。
+      # 历史：Yaw=1.20（+y 侧，臂背面）——2026-09-28 实测"前推向后/左右反"的视角根因。
+      Yaw: -1.5707963267948966
     Saved: ~
 Window Geometry:
   Displays:
