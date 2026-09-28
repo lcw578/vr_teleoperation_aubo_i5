@@ -187,6 +187,7 @@ $PY scripts/verify_traversal.py --pose P02             # 单条穿越复现
 | `lara_style_tracker.py` | **执行核心（路线 B，在链路上）**：积分型关节位置命令 + cond 缩放 + 反极点 park + q_rest 偏置 + 断流冻结 |
 | `quest_adapter_node.py` | relay xr_frame → /quest/pose+joy（收一发一，R_CALIB=Rx(+90°) 变换；`--raw` 发原始坐标） |
 | `direction_check.py` | 方向自检（约定 A 三向：前推=+y/右推=+x/上抬=+z，不按 Grip 纯观察） |
+| `rotation_check.py` | 旋转自检（世界轴三轴：手柄/末端旋转增量轴对齐 dot>0.8 + 角度比≈缩放；需接合，臂会动） |
 | `clutch_mapper_node.py` | 离合映射节点（Grip 接合/reach limit/缩放切换；yaw 补偿默认关） |
 | `gripper_fsm_node.py` | 夹爪两状态 FSM（/mock_vr/joy 与 /quest/joy 双输入） |
 | `e2e_synth_test.py` / `inj_stab.py` | 合成端到端验证 / 稳定性注入测试（不依赖头显） |
@@ -272,9 +273,12 @@ $PY scripts/verify_traversal.py --pose P02             # 单条穿越复现
 2. **映射层**：✅ 已完成（2026-09-25，头显未到先用 Mock 验证）。
    `mock_vr_node.py`（键盘 WASD+QE 平移 / UO-IK-JL 自系旋转 / 空格离合 /
    Shift 缩放 / Z 夹爪；或 `--script` 回放）→ `clutch_mapper_node.py`
-   （离合 + 接合轴对齐 + 滑移 reach limit 0.6 rad / 0.25 m + 0.3 s 断流自动脱离）
+   （离合 + 滑移 reach limit 0.6 rad / 0.25 m + 0.3 s 断流自动脱离；
+   旋转语义 2026-09-28 起为世界轴——手柄绕哪根世界轴转，末端绕同一根轴转，
+   详见 TELEOP_BASELINE §2）
    → `/target_pose`。验收：`scripts/vr_mock_acceptance.py` 11 项判据连续两次全过
-   （工具自系旋转 79° 漂移 0.5 mm、释放冻结 0.00 mm、切档零跳变、夹爪并行）。
+   （下述 79° 数字为旧"工具系再表达"语义时代的记录，仅作历史参照：
+   工具自系旋转 79° 漂移 0.5 mm、释放冻结 0.00 mm、切档零跳变、夹爪并行）。
    硬约束保留：发布 >10 Hz、只发小的可独立成立的安全增量。
 3. **视觉反馈**：仿真期可用 viewer / relay 的 WebRTC 喂渲染画面；**真机前必须有相机方案**
    （URDF 已留 `camera_mount_link`，值为占位）。

@@ -72,7 +72,7 @@ differently"）。换站位/重定向后跑 `direction_check.py` 复核三方向
 | 通道 | 参考系 | 说明 |
 |---|---|---|
 | **平移** | 臂基座系 | 手柄位移经 R_CALIB 旋转，按缩放加到接合锚点；head-yaw 补偿**默认关**（头显内无画面、扭头看外接屏会误触发且旧代码跨接合累积——视频回传上线后再 `--yaw-comp` 打开） |
-| **旋转** | 接合时工具系 | 转手腕=绕末端自身轴转（R_align 接合对齐，会话内固定，重离合重对齐） |
+| **旋转** | 臂基座系（**世界轴**） | 手柄绕哪根世界轴转 θ → 末端目标绕**同一根世界轴**转 θ×缩放，**与接合姿态无关**（上游原版语义；2026-09-28 撤销"接合时工具系再表达"——它使轴对应随接合姿态漂移，头显欧拉辨识实锤手柄 pitch→末端 roll 轴交叉）。验证：rotation_check.py 三轴 dot=+1.000 |
 
 **处置表（direction_check 三向有 ✗ 时）**：
 - 前、右**同时**反（差 180°）→ Quest 重定向反了：重新进入页面，身体面朝操作者前方。
@@ -106,6 +106,8 @@ differently"）。换站位/重定向后跑 `direction_check.py` 复核三方向
 | 夹爪 | OPEN 0.0 / CLOSED 0.9，两状态+斜率 | 用户实测 ✓ |
 | 断流安全 | 头显息屏=下游自动冻结（stale 双保险：adapter 0.3s / tracker 0.5s） | stream_loss 实测语义 |
 | 方向自检（约定 A 三向） | 🔲 待头显复测 | direction_check.py |
+| 旋转自检（世界轴三轴） | 离线数值验证轴对齐 dot=+1.000（ready/朝下两种接合姿态）；🔥 待头显复测 | rotation_check.py |
+| 映射器回归（20 项） | 世界轴语义全过，含换接合姿态不变性（TA2） | test_clutch_mapper.py |
 
 ---
 
@@ -113,6 +115,7 @@ differently"）。换站位/重定向后跑 `direction_check.py` 复核三方向
 
 | 坑 | 防御 |
 |---|---|
+| 对上游的"改进"（R_align 工具系再表达省腕部行程）使轴对应随接合姿态漂移 → 手柄 pitch 出末端 roll 的轴交叉（2026-09-28 头显欧拉辨识实锤） | 撤销偏离、回归上游世界轴语义（clutch_pose_mapper）；旋转自检 rotation_check.py；**新规矩：对上游任何偏离必须写明动机+真头显验证+可一键切回** |
 | RViz 相机在臂背面（+y 侧）→ 屏幕方向与手柄语义整体镜像，表现为"前后左右全反" | 机位定案 -y 侧（Yaw=-π/2），与操作者站位同构（2026-09-28） |
 | 扭头看外接屏 = head-yaw 误补偿；旧代码 R_trans 跨接合累乘，映射被永久转走 | yaw 补偿默认关（--yaw-comp 可开）；代码改绝对式覆写（2026-09-28） |
 | R_CALIB 注释"验证表"与矩阵矛盾（det=-1 镜像）、"唯一正确"声明误导排查 | 注释重写：写明依站位约定而定 + direction_check 复核（2026-09-28） |
@@ -140,6 +143,10 @@ bash ros2_ws/src/aubo_i5_teleop/scripts/authoritative_session.sh  # 仿真栈+�
 
 # ── 方向自检（首次会话/换站位后必做；全程不按 Grip）──
 bash ros2_ws/src/aubo_i5_teleop/scripts/direction_check.py   # 三向 ✓ 再开始遥操
+
+# ── 旋转自检（验证世界轴语义；臂会真实动，动作慢而小 ~20°）──
+bash ros2_ws/src/aubo_i5_teleop/scripts/rotation_check.py    # 三轴 dot>0.8 ✓
+# 换一个臂姿态再跑一遍——结果应不变（"与接合姿态无关"回归判据）
 
 # ── 验证（一条命令）──
 bash ros2_ws/src/aubo_i5_teleop/scripts/inj_stab.py           # 注入阶跃（应为 -78.5mm 稳定）

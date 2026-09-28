@@ -11,12 +11,14 @@
 两处适配（相对上游的差异）：
   1. **平移/旋转双 R 分离**：上游用一个 R（quest→armbase）同时变换平移与旋转。
      我们的键盘 Mock 平移在世界系（W=向任务区），旋转在手柄自系——所以
-     平移用 `R_trans`（默认恒等；真 VR 时可在接合时设成 yaw 修正），
-     旋转用 `R_align`（接合时自动计算，见 2）。
-  2. **接合时轴对齐 R_align = R_ee ⊗ R_ctrl⁻¹**：把手柄自身轴系的增量重新表达进
-     工具（接合时）轴系——"按键 roll/pitch/yaw = 末端绕自己的轴转"，而不是绕
-     世界轴画大圆（本臂腕型对世界系偏航的代价是 rx/ry 的 3–8 倍，实测）。
-     语义是"接合时工具坐标系"在整个会话内固定，重离合即重新对齐。
+     平移用 `R_trans`（默认恒等；真 VR 时可在接合时设成 yaw 修正）。
+  2. ~~接合时轴对齐 R_align~~（2026-09-28 已撤销）：移植时曾把旋转增量经
+     R_align 重表达进"接合时刻工具系"（省球腕行程）。实锤的代价：轴对应
+     随接合姿态漂移——手柄 pitch 出末端 roll 的轴交叉（用户头显欧拉辨识，
+     2026-09-28），数值复现精确命中。现**回归上游世界轴语义**：旋转增量
+     不经任何系变换直接作用于目标（本链路 adapter 已把位姿旋进臂基座系，
+     与上游"固定 R 共轭"数学等价）。手柄绕哪根世界轴转 θ，末端目标就绕
+     同一根世界轴转 θ，与接合姿态无关。
 
 上游原有机制原样保留：
   · 离合状态机：engage 捕获（手柄+末端）锚点 / disengage 后 target() 返回 None
@@ -138,9 +140,7 @@ class ClutchPoseMapper:
         self._ctrl_engage_quat = None
         self._ee_engage_pos = None
         self._ee_engage_quat = None
-        # 旋转轴对齐（接合时算一次）：R_align = R_ee ⊗ R_ctrl⁻¹
-        self._R_align_quat = np.array([1.0, 0.0, 0.0, 0.0])
-        self._R_align_quat_conj = np.array([1.0, 0.0, 0.0, 0.0])
+        # 旋转轴对齐（2026-09-28 撤销：R_align 工具系再表达导致轴交叉，见文件头）
         # 增量累积状态（每次接合重置）
         self._ctrl_prev_quat = None
         self._ctrl_prev_pos = None
@@ -163,11 +163,6 @@ class ClutchPoseMapper:
         self._ee_engage_pos = np.array(ee_pos, float, copy=True)
         self._ee_engage_quat = np.array(ee_quat, float, copy=True)
         self.rotation_pivot = None if pivot is None else np.array(pivot, float, copy=True)
-        # 轴对齐：手柄自系轴 → 工具（接合时）自系轴
-        self._R_align_quat = quat_mul(self._ee_engage_quat,
-                                      quat_conj(self._ctrl_engage_quat))
-        self._R_align_quat /= np.linalg.norm(self._R_align_quat)
-        self._R_align_quat_conj = quat_conj(self._R_align_quat)
         self._ctrl_prev_quat = self._ctrl_engage_quat.copy()
         self._ctrl_prev_pos = self._ctrl_engage_pos.copy()
         self._d_quat_eff = np.array([1.0, 0.0, 0.0, 0.0])
@@ -206,6 +201,9 @@ class ClutchPoseMapper:
         self._ctrl_prev_pos = p_now.copy()
 
         # ---- 旋转：增量路径逐 tick 累积（增量小、方向无歧义；半球对齐）----
+        # 2026-09-28 回归上游世界轴语义：inc 已是臂基座系（世界）旋转增量，
+        # 直接作用于目标。手柄绕哪根世界轴转 θ → 末端目标绕同一根轴转 θ，
+        # 与接合姿态无关（工具系再表达的轴交叉缺陷见文件头）。
         q_now = np.asarray(controller_quat, float)
         rot_limited = ee_quat is not None and bool(self.rot_reach_limit)
         if rot_limited:
@@ -216,14 +214,11 @@ class ClutchPoseMapper:
             self._ctrl_prev_quat = q_now.copy()
             if self.scale_rotation != 1.0:
                 inc = quat_pow(inc, self.scale_rotation)
-            # 轴对齐：手柄自系轴增量 → 工具（接合时）自系轴增量
-            inc_arm = quat_mul(quat_mul(self._R_align_quat, inc),
-                               self._R_align_quat_conj)
-            d_quat_arm = quat_mul(inc_arm, self._d_quat_eff)
+            d_quat_arm = quat_mul(inc, self._d_quat_eff)
             d_quat_arm /= np.linalg.norm(d_quat_arm)
             self._d_quat_eff = d_quat_arm
         else:
-            # 绝对路径（测试用）：总增量同样经 R_align 重表达，保持两路径一致
+            # 绝对路径（测试用）：接合以来的世界系总增量直接作为目标增量
             if self._ctrl_prev_quat is not None:
                 if float(np.dot(q_now, self._ctrl_prev_quat)) < 0.0:
                     q_now = -q_now
@@ -231,8 +226,7 @@ class ClutchPoseMapper:
             d_quat_quest = quat_mul(q_now, quat_conj(self._ctrl_engage_quat))
             if self.scale_rotation != 1.0:
                 d_quat_quest = quat_pow(d_quat_quest, self.scale_rotation)
-            d_quat_arm = quat_mul(quat_mul(self._R_align_quat, d_quat_quest),
-                                  self._R_align_quat_conj)
+            d_quat_arm = d_quat_quest
 
         target_quat = quat_mul(d_quat_arm, self._ee_engage_quat)
 
