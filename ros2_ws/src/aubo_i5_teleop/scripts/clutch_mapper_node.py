@@ -79,7 +79,7 @@ _mj_bid = mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_BODY, "ag95_base")
 
 class ClutchMapperNode(Node):
     def __init__(self, input_prefix: str = "mock_vr", scale_coarse: float | None = None,
-                 yaw_comp: bool = False):
+                 yaw_comp: bool = False, no_scale_toggle: bool = False):
         super().__init__("clutch_mapper")
         self.set_parameters([rclpy.parameter.Parameter("use_sim_time", value=True)])
         self.mapper = ClutchPoseMapper(rot_reach_limit=0.6, pos_reach_limit=0.25)
@@ -92,6 +92,9 @@ class ClutchMapperNode(Node):
         # 落到 0.33 且之后 0.33↔0.1 循环、回不到 0.5。现存实例属性参与切档。
         self._scale_coarse = scale_coarse if scale_coarse is not None else SCALE_COARSE
         self.scale = self._scale_coarse      # 常规档 ↔ SCALE_FINE（1:10 微调）
+        # --no-scale-toggle（单档模式）：A 键误触会让整套测试/操作莫名变小 10 倍
+        # （2026-09-29 实测踩中：左手柄 X 钮无效、右手柄易蹭到），调试期可锁定常规档
+        self._scale_toggle = not no_scale_toggle
         self._engaged = False
         self._last_tgt_p = None            # 最后发布的基准（重接合锚点用）
         self._smooth_p = None              # EMA 平滑后的发送位姿（抗手抖/抗极限环）
@@ -127,8 +130,9 @@ class ClutchMapperNode(Node):
         self.timer = self.create_timer(1.0 / RATE_HZ, self._tick)
         self.get_logger().info(
             "clutch_mapper 就绪（输入 %s）：脱离中。离合=buttons[0] 上升沿接合；微调 scale=%.2f；"
-            "断流 %.1f s 自动脱离；head-yaw 补偿=%s"
-            % (self._pose_topic, SCALE_FINE, POSE_STALE_DISENGAGE,
+            "断流 %.1f s 自动脱离；常规档 scale=%.2f%s；head-yaw 补偿=%s"
+            % (self._pose_topic, self._scale_coarse,
+               "（A 可切 %.2f）" % SCALE_FINE if self._scale_toggle else "（单档锁定）",
                "开" if self._yaw_comp else "关（默认）"))
 
     # ---------- 回调 ----------
@@ -224,8 +228,8 @@ class ClutchMapperNode(Node):
         now = time.time()
         clutch = self._joy_buttons[0] if (self._joy_arrival and
                                           now - self._joy_arrival < FRESH_ENGAGE) else 0
-        # 缩放切换（上升沿，脱离/接合皆可）
-        if self._prev_scale_btn == 0 and self._joy_buttons[2] == 1:
+        # 缩放切换（上升沿，脱离/接合皆可；单档模式下禁用）
+        if self._scale_toggle and self._prev_scale_btn == 0 and self._joy_buttons[2] == 1:
             self.scale = SCALE_FINE if self.scale == self._scale_coarse else self._scale_coarse
             self.mapper.scale = self.scale
             self.mapper.scale_rotation = self.scale
@@ -300,13 +304,16 @@ def main():
                     help="常规档缩放（默认 quest=0.5 / mock=1.0）")
     ap.add_argument("--yaw-comp", action="store_true",
                     help="启用 head-yaw 平移补偿（默认关——头显内有场景画面后再开）")
+    ap.add_argument("--no-scale-toggle", action="store_true",
+                    help="单档模式：禁用 A 键切档，锁定常规档（调试期防误触）")
     args = ap.parse_args()
     rclpy.init()
     sc = args.scale
     if sc is None and args.input == "quest":
         sc = 0.5
     node = ClutchMapperNode(input_prefix=args.input, scale_coarse=sc,
-                            yaw_comp=args.yaw_comp)
+                            yaw_comp=args.yaw_comp,
+                            no_scale_toggle=args.no_scale_toggle)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
