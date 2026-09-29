@@ -231,6 +231,11 @@ def main():
         d_h, d_e = out
         a_h = d_h / max(np.linalg.norm(d_h), 1e-9)
         a_e = d_e / max(np.linalg.norm(d_e), 1e-9)
+        # 诊断：手柄实际旋转轴偏离世界竖直轴多少（判"摇头却点头"是手势轴斜还是 bug）
+        tilt_h = math.degrees(math.acos(min(1.0, abs(float(a_h[2])))))
+        tilt_e = math.degrees(math.acos(min(1.0, abs(float(a_e[2])))))
+        print("   [诊断] 手柄旋转轴偏离竖直 %.0f°（轴=%s）| 末端旋转轴偏离竖直 %.0f°"
+              % (tilt_h, np.round(a_h, 2).tolist(), tilt_e))
         dot = float(np.dot(a_h, a_e))
         ang_h = float(np.degrees(np.linalg.norm(d_h)))
         ang_e = float(np.degrees(np.linalg.norm(d_e)))
