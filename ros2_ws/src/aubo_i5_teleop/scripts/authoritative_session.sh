@@ -63,7 +63,7 @@ echo "[4b/5] 起 VR 执行核心 + 输入链（lara_tracker + quest_adapter + cl
 nohup $PY scripts/lara_style_tracker.py > /tmp/lara_tracker.log 2>&1 &
 sleep 2
 nohup $PY scripts/quest_adapter_node.py > /tmp/quest_adapter.log 2>&1 &
-nohup $PY scripts/clutch_mapper_node.py --input quest > /tmp/teleop_mapper.log 2>&1 &
+nohup $PY scripts/clutch_mapper_node.py --input quest --no-scale-toggle > /tmp/teleop_mapper.log 2>&1 &
 nohup $PY scripts/gripper_fsm_node.py > /tmp/teleop_gripper.log 2>&1 &
 sleep 4
 
