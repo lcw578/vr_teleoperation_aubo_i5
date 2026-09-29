@@ -37,7 +37,7 @@ from geometry_msgs.msg import PoseStamped
 from sensor_msgs.msg import Joy
 rclpy.init(); n = Node("chain7")
 got = {"pose": 0, "joy": 0, "tgt": 0}
-last_joy = None; last_pose = None
+last = {}   # 2026-09-29 修复：原 last_joy/last_pose 未定义，lambda 引用 last 每条消息 NameError
 n.create_subscription(PoseStamped, "/quest/pose", lambda m: (got.__setitem__("pose", got["pose"]+1), last.__setitem__("pose", (round(m.pose.position.x,2), round(m.pose.position.y,2), round(m.pose.position.z,2)))), 10)
 n.create_subscription(Joy, "/quest/joy", lambda m: (got.__setitem__("joy", got["joy"]+1), last.__setitem__("joy", list(m.buttons))), 10)
 n.create_subscription(PoseStamped, "/target_pose", lambda m: got.__setitem__("tgt", got["tgt"]+1), 10)

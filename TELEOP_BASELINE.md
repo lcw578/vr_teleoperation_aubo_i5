@@ -166,9 +166,8 @@ bash ros2_ws/src/aubo_i5_teleop/scripts/run_bench.sh stop     # 仿真栈全清
 
 1. 🔲 **真实头显佩戴复测**——方向自检（direction_check.py 三向）、跟手感、
    Trigger 手感、RViz 机位（+y 侧操作者身后）画面确认、跷跷板观感是否消失；代码全就位等实测
-2. ⚠️ A 键缩放切换：**已接线**（buttons[2] 上升沿切档），但切档有 quirk——quest 默认
-   0.5 首按落到全局 0.33、之后 0.33↔0.1 循环（__init__ 局部赋值未改模块全局，
-   一行修复待批）
+2. ✅ A 键缩放切换：已接线且切档 quirk 已修（2026-09-29）——quest 默认 0.5↔0.1、
+   mock 0.33↔0.1，两条循环实测验证正确
 3. 🔲 Trigger 模拟量直驱夹爪（LARA 式，替代两状态——可选）
 4. 🔲 头显内场景画面（视频回传）——上线后才能安全打开 `--yaw-comp`
 5. 🔲 录制管线（/joint_states + /quest/pose + 图像 → lerobot 数据集）

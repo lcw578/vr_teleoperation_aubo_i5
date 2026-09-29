@@ -87,12 +87,12 @@ class ClutchMapperNode(Node):
         # 扭头看外接屏就会触发 Δyaw——把"看一眼屏幕"误当"转身"，映射被永久转走。
         # 等头显内视频回传上线后再用 --yaw-comp 打开。
         self._yaw_comp = yaw_comp
-        if scale_coarse is not None:
-            SCALE_COARSE = scale_coarse      # CLI 覆盖（quest 默认 0.5）
-        self.scale = SCALE_COARSE            # 1:2 ↔ SCALE_FINE（1:10 微调）
+        # 2026-09-29 修复切档 quirk：旧代码 SCALE_COARSE = scale_coarse 是【局部赋值】
+        # （未改模块全局），而 _tick 的 A 键切档读全局 0.33——quest 默认 0.5 首按
+        # 落到 0.33 且之后 0.33↔0.1 循环、回不到 0.5。现存实例属性参与切档。
+        self._scale_coarse = scale_coarse if scale_coarse is not None else SCALE_COARSE
+        self.scale = self._scale_coarse      # 常规档 ↔ SCALE_FINE（1:10 微调）
         self._engaged = False
-        if scale_coarse is not None:
-            self.scale = scale_coarse
         self._last_tgt_p = None            # 最后发布的基准（重接合锚点用）
         self._smooth_p = None              # EMA 平滑后的发送位姿（抗手抖/抗极限环）
         self.SMOOTH_ALPHA = 0.35           # 100 Hz tick 下 ~8 Hz 截止（0.35@100Hz）
@@ -214,7 +214,6 @@ class ClutchMapperNode(Node):
 
     # ---------- 主循环 ----------
     def _tick(self):
-        global SCALE_COARSE
         self._dbg += 1
         if self._dbg % 200 == 1:
             self.get_logger().info("DBG tick#%d: engaged=%s joy_btn=%s joy_age=%s pose_age=%s fk_age=%s"
@@ -227,11 +226,12 @@ class ClutchMapperNode(Node):
                                           now - self._joy_arrival < FRESH_ENGAGE) else 0
         # 缩放切换（上升沿，脱离/接合皆可）
         if self._prev_scale_btn == 0 and self._joy_buttons[2] == 1:
-            self.scale = SCALE_FINE if self.scale == SCALE_COARSE else SCALE_COARSE
+            self.scale = SCALE_FINE if self.scale == self._scale_coarse else self._scale_coarse
             self.mapper.scale = self.scale
             self.mapper.scale_rotation = self.scale
-            self.get_logger().info("缩放 → %s" % (
-                "1:3" if self.scale == SCALE_COARSE else "1:10 微调"))
+            self.get_logger().info("缩放 → %s（1:%.1f）" % (
+                "常规" if self.scale == self._scale_coarse else "1:10 微调",
+                1.0 / self.scale))
         self._prev_scale_btn = self._joy_buttons[2]
 
         pose_fresh = (self._pose_arrival and now - self._pose_arrival < FRESH_ENGAGE)
