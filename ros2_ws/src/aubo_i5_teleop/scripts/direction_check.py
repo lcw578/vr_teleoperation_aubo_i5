@@ -4,7 +4,7 @@
 # Python 把它解析为一个无操作字符串。（2026-09-28 用户实测 bash 直跑报
 # "import: 未找到命令"后加；inj_stab.py 同款）
 ''''exec /bin/bash -c ". /opt/ros/humble/setup.bash 2>/dev/null || :; exec /home/lcw/tomato_robot/.venv/bin/python -- \"\$0\" \"\$@\"" "$0" "$@" # '''
-"""方向自检：验证手柄→臂基座系的平移映射是否符合方位约定 A（TELEOP_BASELINE.md §2）。
+"""方向自检：验证手柄→臂基座系的平移映射是否符合方位约定 B（TELEOP_BASELINE.md §2）。
 
 用法（戴头显、页面 Start Teleop 已开、【不要按 Grip】）：
   bash scripts/direction_check.py   # 推荐：自动 source ROS + exec venv Python
@@ -12,10 +12,10 @@
 
 流程：按提示做 3 次手柄平推（前/右/上，各约 5-10 cm，一次平滑推到位）。
 脚本观察 /quest/pose（= R_CALIB 变换后的臂基座系坐标），判定每次推映射到的
-世界方向是否符合约定 A：
-  前推 → 世界 +y（屏幕里，远离操作者）   右推 → 世界 +x（屏幕右）   上抬 → +z
+世界方向是否符合约定 B（2026-09-29 定案，操作者在臂后方 +y 侧、面向 -y）：
+  前推 → 世界 -y（屏幕里，深入工作区）   右推 → 世界 -x（屏幕右）   上抬 → +z
 三向全 ✓ 才算过（退出码 0）。任何 ✗ = Quest 重定向朝向或操作者站位与约定不符：
-先重新进入页面（身体面朝操作者前方）再测；仍 ✗ 按 TELEOP_BASELINE §2 处置表查。
+先重新进入页面（身体面朝臂后方即 -y 方向）再测；仍 ✗ 按 TELEOP_BASELINE §2 处置表查。
 
 本脚本只订阅不发布，与遥操链并行安全；Ctrl-C 退出。
 """
@@ -35,12 +35,12 @@ SETTLE_WIN = 0.4        # 静止判定窗（s）
 SETTLE_EPS = 0.005      # 窗内变化阈值（m）
 STAGE_TIMEOUT = 30.0    # 每步超时（s）
 
-# (提示, 约定 A 的期望方向)——/quest/pose 已是臂基座系坐标，直接比对
+# (提示, 约定 B 的期望方向)——/quest/pose 已是臂基座系坐标，直接比对
 STAGES = [
     ("【1/3】把手柄向前推 5-10 cm（远离你身体的方向），一次平滑推到位后停住",
-     np.array([0.0, 1.0, 0.0]), "前推"),
+     np.array([0.0, -1.0, 0.0]), "前推"),
     ("【2/3】把手柄向右推 5-10 cm（你的右手方向），推到位后停住",
-     np.array([1.0, 0.0, 0.0]), "右推"),
+     np.array([-1.0, 0.0, 0.0]), "右推"),
     ("【3/3】把手柄竖直向上抬 5-10 cm，到位后停住",
      np.array([0.0, 0.0, 1.0]), "上抬"),
 ]
@@ -96,13 +96,13 @@ def wait_settled_move(node, anchor):
 
 
 def describe_screen(d):
-    """把臂基座系位移翻译成屏幕语义（RViz 相机在 -y 侧：屏幕里=+y、屏幕右=+x）。"""
+    """把臂基座系位移翻译成屏幕语义（RViz 相机在 +y 侧操作者身后：屏幕里=-y、屏幕右=-x）。"""
     dx, dy, dz = d
     parts = []
     if abs(dy) > 0.01:
-        parts.append("屏幕%s" % ("里(远离你)" if dy > 0 else "外(朝你)"))
+        parts.append("屏幕%s" % ("里(远离你)" if dy < 0 else "外(朝你)"))
     if abs(dx) > 0.01:
-        parts.append("屏幕%s" % ("右" if dx > 0 else "左"))
+        parts.append("屏幕%s" % ("右" if dx < 0 else "左"))
     if abs(dz) > 0.01:
         parts.append("%s" % ("上" if dz > 0 else "下"))
     return " + ".join(parts) if parts else "（几乎没动）"
@@ -113,7 +113,7 @@ def judge(d, expected):
     n = float(np.linalg.norm(d))
     cosang = float(np.dot(d, expected)) / max(n, 1e-9)
     if cosang > math.cos(math.radians(45)):
-        return True, "✓ 符合约定 A"
+        return True, "✓ 符合约定 B"
     if cosang < -math.cos(math.radians(45)):
         return False, "✗ 反了 180°（Quest 重定向朝向或站位与约定相反）"
     return False, "✗ 错位（映射方向偏了 ~90°，查 R_CALIB/重定向）"
@@ -123,8 +123,8 @@ def main():
     rclpy.init()
     node = DirCheck()
     print("=" * 64)
-    print("方向自检（约定 A：前推=+y 远离你 / 右推=+x / 上抬=+z）")
-    print("RViz 相机在 -y 侧：屏幕里 = 世界 +y，屏幕右 = 世界 +x")
+    print("方向自检（约定 B：前推=-y 深入工作区 / 右推=-x / 上抬=+z）")
+    print("RViz 相机在 +y 侧（你身后）：屏幕里 = 世界 -y，屏幕右 = 世界 -x")
     print("=" * 64)
     print("等待 /quest/pose（确认 quest_adapter 在跑、页面已 Start Teleop）…")
     t0 = time.time()

@@ -61,22 +61,23 @@ def quat_wxyz_to_xyzw(q):
     return [q[1], q[2], q[3], q[0]]
 
 
-# ── Quest 世界系 → 臂基座系 的固定旋转（方位约定 A"操作者中心"，2026-09-28 定案）──
-# 方位约定（TELEOP_BASELINE.md §2，用户拍板）：
+# ── Quest 世界系 → 臂基座系 的固定旋转（方位约定 B"操作者在臂后方"，2026-09-29 定案）──
+# 方位约定（TELEOP_BASELINE.md §2，用户明确："在机械臂的后面操作，夹爪在最远离我的位置"）：
 #   · world ≡ 臂基座系（臂焊死原点），+z 上；臂工作区方向 = 世界 -y。
-#   · 操作者标准站位 = 工作区侧（世界 -y 侧），面向 +y。
-#   · 手柄语义：前推(-z) → 末端远离操作者 = 世界 +y；右推(+x) → 世界 +x；上抬(+y) → +z。
-# 解得 R = Rx(+90°)。逐轴验证：前(-z)→+y ✓、右(+x)→+x ✓、上(+y)→+z ✓、
-# 左(-x)→-x ✓、下(-y)→-z ✓（det=+1）。
-# ⚠️ R_CALIB 不存在普适值——它取决于操作者站位与 Quest 重定向朝向（上游
-#   bi_quest_teleop.py L87-91 原文："Derived empirically for the original lab
-#   mounting; override if your robot faces the operator differently"）。
-#   换站位/换朝向后必须用 scripts/direction_check.py 复核三方向。
-# ⚠️ 错误历史：Rz180（未验证）→ Rz(-90°)（未按位姿链路验证）→ 86b4400 Rx(+90°)
-#   （矩阵正确，但其注释"验证表"前(-z)→-y 为 det=-1 镜像、与矩阵不符，已废弃）。
+#   · 操作者站位 = 臂后方 = 工作区对侧（世界 +y 侧），面向 -y（越过臂看工作区）。
+#   · 手柄语义：前推(-z) → 末端远离操作者 = 世界 -y（深入工作区）；
+#     右推(+x) → 操作者右 = 世界 -x；上抬(+y) → +z。
+# 解得 R = Rz(180°)·Rx(90°)。逐轴验证：前(-z)→-y ✓、右(+x)→-x ✓、上(+y)→+z ✓、
+# 左(-x)→+x ✓、下(-y)→-z ✓（det=+1）。
+# ⚠️ R_CALIB 不存在普适值——取决于操作者站位与 Quest 重定向（上游 bi_quest_teleop.py
+#   L87-91 原文："Derived empirically …; override if your robot faces the operator
+#   differently"）。换站位/换朝向后必须用 direction_check.py + rotation_check.py 复核。
+# ⚠️ 错误历史：Rz180（未验证）→ Rz(-90°)（未按位姿链路验证）→ Rx(+90°)（约定 A，
+#   假设操作者站工作区侧——2026-09-29 用户澄清实际站在臂后方，水平翻转 180° 为今版）。
+#   三次更换反复出错的真正根因：从未确认操作者站位这一前提。
 import numpy as _np
-_R_QUEST_TO_ARM = _np.array([[1.0, 0.0, 0.0],
-                             [0.0, 0.0, -1.0],
+_R_QUEST_TO_ARM = _np.array([[-1.0, 0.0, 0.0],
+                             [0.0, 0.0, 1.0],
                              [0.0, 1.0, 0.0]])
 
 
