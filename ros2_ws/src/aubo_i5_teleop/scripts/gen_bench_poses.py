@@ -48,7 +48,7 @@ Q_ABS_MAX = 1.6                    # 每个关节角的绝对值上限（rad）
 #    实测 12 个位姿里 10 个末端 p2p = 0。任务区是给"人怎么够到果子"用的，
 #    构型也必须是合理构型，不能只要末端位置对。
 Q_MARGIN_FROM_LIMIT = 3.04 - Q_ABS_MAX
-READY_Q = [-1.135857, 0.052094, 1.773601, -1.987012, -1.197269, 0.228262]
+READY_Q = [-1.137355, 0.041596, 1.593368, -1.589821, -1.137355, 1.570796]
 # ↑ 与 go_ready.py 的 READY / scene_ros2.xml 的 ready 关键帧保持一致
 SIGMA_Q = 0.28                     # 在家位姿附近的采样幅度（rad/关节）
 HARD_STOP = 200.0                  # Servo 的 hard_stop_singularity_threshold

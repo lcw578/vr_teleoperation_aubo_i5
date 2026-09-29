@@ -160,7 +160,7 @@ def ros_calibrate():
     pub_cmd = n.create_publisher(
         __import__("std_msgs.msg", fromlist=["Float64MultiArray"]).Float64MultiArray,
         "/forward_command_controller_position/commands", 10)
-    READY = [-1.135857, 0.052094, 1.773601, -1.987012, -1.197269, 0.228262]
+    READY = [-1.137355, 0.041596, 1.593368, -1.589821, -1.137355, 1.570796]
     from std_msgs.msg import Float64MultiArray
     t0 = time.time()
     while time.time() - t0 < 5:
