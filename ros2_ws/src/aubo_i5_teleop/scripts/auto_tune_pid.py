@@ -34,7 +34,7 @@ from sensor_msgs.msg import JointState
 
 G = ["shoulder_joint", "upperArm_joint", "foreArm_joint",
      "wrist1_joint", "wrist2_joint", "wrist3_joint"]
-READY_Q = [-1.089254, -0.802598, 1.308255, 0.588418, 0.324607, -0.704605]
+READY_Q = [-1.135857, 0.052094, 1.773601, -1.987012, -1.197269, 0.228262]
 STEP_M = 0.08
 SINE_HZ = 0.5
 SINE_AMP_M = 0.04

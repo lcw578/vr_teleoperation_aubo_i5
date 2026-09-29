@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""把机械臂驱动到 MJCF 的 ready 位姿（0 -0.4 0.8 0 0.4 0）。
+"""把机械臂驱动到 MJCF 的 ready 位姿（P1"中位递物"，2026-09-29 定案：
+末端 (0,-0.55,0.30) 台面上 30cm、夹爪指向操作者微低头 30°、开口沿屏幕左右；
+IK 反解（cond=9.7 关节余量 1.05 rad 零碰撞），用户在 P1/P2 中选定 P1（收拢姿态
+远离伸展锁死区）。渲染图 assets/ready_candidates/。
 
 为什么需要这个工具：
   1. **仿真启动时机械臂并不在 ready**。`scene_ros2.xml` 里虽然定义了
@@ -36,12 +39,13 @@ CMD_TOPIC = "/forward_command_controller_position/commands"
 CMD_TOPIC_VEL = "/forward_command_controller_velocity/commands"
 GROUP = ["shoulder_joint", "upperArm_joint", "foreArm_joint",
          "wrist1_joint", "wrist2_joint", "wrist3_joint"]
-# 与 MJCF scene_ros2.xml 的 <key name="ready"> 一致
+# 与 MJCF scene_ros2.xml 的 <key name="ready"> 一致（P1，2026-09-29 定案；
+# 旧值 [-1.089...] 为基准测试时代产物，J1 半转身+夹爪贴台面，已退役）
 # ⚠️ 2026-09-24 换过：旧值 [0.0, -0.4, 0.8, 0.0, 0.4, 0.0] 的末端距基座 0.890 m（≈满臂展），
 # 处在侧前方的伸直角；而任务区在正前方 700–944 mm。实测从旧 home **走不进任务区**
 # （P01 只走一半、P02 报碰撞降速）。新值与 assets/aubo_i5/scene_ros2.xml 的 ready 关键帧
 # **必须保持一致**，否则启动位姿与归位目标会打架。
-READY = [-1.089254, -0.802598, 1.308255, 0.588418, 0.324607, -0.704605]
+READY = [-1.135857, 0.052094, 1.773601, -1.987012, -1.197269, 0.228262]
 EE = "gripper_tip_link"
 WORLD = "world"
 # 速度模式归位用的比例系数与速度上限。上限取厂家 joint_limits.yaml 的 max_velocity。

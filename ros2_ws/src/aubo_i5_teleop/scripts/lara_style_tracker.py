@@ -49,7 +49,8 @@ TIP_OFF = np.array([-0.0405, -0.0143, 0.1492])
 CMD_TOPIC = "/forward_command_controller_position/commands"
 TARGET_TOPIC = "/target_pose"
 
-Q_REST = np.array([-1.089254, -0.802598, 1.308255, 0.588418, 0.324607, -0.704605])
+# ready=P1（2026-09-29 IK 反解定案，与 MJCF keyframe/go_ready 同源）：
+Q_REST = np.array([-1.135857, 0.052094, 1.773601, -1.987012, -1.197269, 0.228262])
 MU_REST = 0.02              # Tikhonov 刚度（拉向 q_rest，破肘部翻转歧义；上游 mu=0.02）
 ROT_ERR_HOLD = 2.2          # 反极点 park 门限（rad，>126° 停腕；上游 rot_err_hold=2.2）
 JOINT_LIMIT = 3.04
