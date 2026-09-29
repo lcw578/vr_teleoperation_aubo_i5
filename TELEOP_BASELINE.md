@@ -137,8 +137,10 @@ ready 已换 P1、约定已换 B，重测前作参考（§7 第 7 项）。
 ## 6. 启动/关闭（完整流程）
 
 ```bash
-# ── 拉起（两条命令）──
-bash ros2_ws/src/aubo_i5_teleop/scripts/run_relay.sh          # relay（头显页面入口）
+# ── 拉起（两个终端；run_relay 是前台服务器、会占住自己的终端）──
+# 终端 1：
+bash ros2_ws/src/aubo_i5_teleop/scripts/run_relay.sh          # relay（头显页面入口，前台常驻）
+# 终端 2：
 bash ros2_ws/src/aubo_i5_teleop/scripts/authoritative_session.sh  # 仿真栈+归位+四节点
 
 # ── 头显端 ──
