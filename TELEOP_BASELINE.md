@@ -1,4 +1,4 @@
-# VR 遥操仿真 · 正式基线（2026-09-28）
+# VR 遥操仿真 · 正式基线（2026-09-29）
 
 > 本文档是**VR 遥操控制链的当前正式基线**，与 [BASELINE.md](BASELINE.md)（控制链标定基线）
 > 互补。所有数字均标注来源与验证方式。状态标记：✅ 已验证 ｜ ⚠️ 有限定条件 ｜ 🔲 未完成。
@@ -28,7 +28,7 @@ quest_adapter_node.py（收一发一，~90Hz 透传）
    ▼  /quest/pose + /quest/joy + /quest/head_yaw
 clutch_mapper_node.py --input quest（100 Hz）
    · Grip 按住=接合（buttons[1]），松开=脱离
-   · ClutchPoseMapper（上游移植，17 项测试）：滑移 reach limit
+   · ClutchPoseMapper（上游移植，20 项测试）：滑移 reach limit
      rot 0.6 rad / pos 0.25 m
    · yaw 修正默认关（--yaw-comp 可开——头显内无画面时扭头看屏会误触发）
    · 缩放 1:2（quest 默认 scale=0.5）/ 1:10 微调（SCALE_FINE）
@@ -103,12 +103,15 @@ differently"）。换站位/重定向后跑 `direction_check.py` + `rotation_che
 | 注入阶跃 z-8cm | **1.5 s 到位 -78.5 mm，零摆动**（两遍逐位一致） | inj_stab.py |
 | 合成端到端（Grip→跟随→冻结） | -y 48.9mm 方向正确、冻结漂移 0.00mm | e2e_synth_test.py |
 | 正弦跟随（tracker 首测） | 幅值比 1.00、qd 峰值 1.84 rad/s | sine 手动注入 |
-| 上游映射器数学 | 17 项测试全过（工具轴语义差 0.0000°） | test_clutch_mapper.py |
+| 上游映射器数学 | 20 项测试全过（世界轴语义 + 换接合姿态不变性 TA2） | test_clutch_mapper.py |
 | 夹爪 | OPEN 0.0 / CLOSED 0.9，两状态+斜率 | 用户实测 ✓ |
-| 断流安全 | 头显息屏=下游自动冻结（stale 双保险：adapter 0.3s / tracker 0.5s） | stream_loss 实测语义 |
+| 断流安全 | 头显息屏=下游自动冻结（stale 双保险：**mapper 0.3s 脱离 / tracker 0.5s 冻结**；adapter 只透传、无缓存无守卫） | stream_loss 实测语义 |
 | 方向自检（约定 B 三向） | 🔲 待头显复测（2026-09-28 的 3/3 是约定 A 下测的，换 B 后需重测） | direction_check.py |
 | 旋转自检（世界轴三轴） | 离线数值验证轴对齐 dot=+1.000（ready/朝下两种接合姿态）；🔥 待头显复测 | rotation_check.py |
 | 映射器回归（20 项） | 世界轴语义全过，含换接合姿态不变性（TA2） | test_clutch_mapper.py |
+
+⚠️ 注入阶跃 / 端到端 / 正弦三行是 2026-09-28 前（旧 ready + 约定 A 时代）实测；
+ready 已换 P1、约定已换 B，重测前作参考（§7 第 7 项）。
 
 ---
 
@@ -117,14 +120,14 @@ differently"）。换站位/重定向后跑 `direction_check.py` + `rotation_che
 | 坑 | 防御 |
 |---|---|
 | 对上游的"改进"（R_align 工具系再表达省腕部行程）使轴对应随接合姿态漂移 → 手柄 pitch 出末端 roll 的轴交叉（2026-09-28 头显欧拉辨识实锤） | 撤销偏离、回归上游世界轴语义（clutch_pose_mapper）；旋转自检 rotation_check.py；**新规矩：对上游任何偏离必须写明动机+真头显验证+可一键切回** |
-| RViz 相机在臂背面（+y 侧）→ 屏幕方向与手柄语义整体镜像，表现为"前后左右全反" | 机位定案 -y 侧（Yaw=-π/2），与操作者站位同构（2026-09-28） |
+| RViz 机位与操作者站位差 180° → 镜像感（09-28 曾归因"相机在臂背面"并把机位移到 -y 侧——该结论本身建立在"操作者站工作区侧"的错误假设上） | 09-29 约定 B 定案：机位 = 操作者身后（+y 侧，Yaw=+π/2），与站位同构 |
 | 扭头看外接屏 = head-yaw 误补偿；旧代码 R_trans 跨接合累乘，映射被永久转走 | yaw 补偿默认关（--yaw-comp 可开）；代码改绝对式覆写（2026-09-28） |
 | R_CALIB 注释"验证表"与矩阵矛盾（det=-1 镜像）、"唯一正确"声明误导排查 | 注释重写：写明依站位约定而定 + direction_check 复核（2026-09-28） |
 | MuJoCo viewer 关窗 = segfault 杀仿真 | stage2a 固化 headless:=true（无窗口） |
 | viewer 空格键 = 暂停仿真 | 操作时焦点勿留 viewer（headless 后自然规避） |
 | 多实例节点互发覆盖 | 所有启动脚本幂等（kill 名单 + 启动），禁止手动散起 |
 | pkill 自匹配杀掉自己的 shell | 杀名单用 `[x]` 括号转义 |
-| 息屏 = 页面 JS 暂停 = ws 断 | 摘头显前先说一声；系统侧 stale 双保险（0.3s/0.5s） |
+| 息屏 = 页面 JS 暂停 = ws 断 | 摘头显前先说一声；系统侧 stale 双保险（mapper 0.3s 脱离 / tracker 0.5s 冻结） |
 | 四元数 wxyz/xyzw 三次错位 | 从 MuJoCo API 取值必须先转 (x,y,z,w)；工具轴比对验证法 |
 | /joint_states 配对按消息内顺序 | 解析时禁止按 GROUP 顺序 zip |
 | ROS 图发现延迟（新节点收不到话题） | 节点全起后 sleep 8s 再验证；restart_vr_chain.sh 已内置 |
@@ -140,7 +143,7 @@ bash ros2_ws/src/aubo_i5_teleop/scripts/authoritative_session.sh  # 仿真栈+�
 
 # ── 头显端 ──
 # 浏览器 https://<PC-IP>:8443/ → Enter VR → Calibrate wrist → Start Teleop
-# （进入页面时身体面朝操作者前方 = 平时看显示器的方向，见 §2）
+# （进入页面时身体面朝 -y 方向 = 臂后方、越过臂看工作区，见 §2）
 
 # ── 方向自检（首次会话/换站位后必做；全程不按 Grip）──
 bash ros2_ws/src/aubo_i5_teleop/scripts/direction_check.py   # 三向 ✓ 再开始遥操
@@ -162,13 +165,18 @@ bash ros2_ws/src/aubo_i5_teleop/scripts/run_bench.sh stop     # 仿真栈全清
 ## 7. 开放项（按优先级）
 
 1. 🔲 **真实头显佩戴复测**——方向自检（direction_check.py 三向）、跟手感、
-   Trigger 手感、RViz 新机位（-y 侧）画面确认；代码全就位等实测
-2. 🔲 A 键缩放切换接线（结构已留）
+   Trigger 手感、RViz 机位（+y 侧操作者身后）画面确认、跷跷板观感是否消失；代码全就位等实测
+2. ⚠️ A 键缩放切换：**已接线**（buttons[2] 上升沿切档），但切档有 quirk——quest 默认
+   0.5 首按落到全局 0.33、之后 0.33↔0.1 循环（__init__ 局部赋值未改模块全局，
+   一行修复待批）
 3. 🔲 Trigger 模拟量直驱夹爪（LARA 式，替代两状态——可选）
 4. 🔲 头显内场景画面（视频回传）——上线后才能安全打开 `--yaw-comp`
 5. 🔲 录制管线（/joint_states + /quest/pose + 图像 → lerobot 数据集）
 6. 🔲 真机接入（lara_tracker 的积分命令语义 = 真机控制柜标准输入，直连）
+7. 🔲 性能三表重测（注入阶跃/端到端/正弦是旧 ready 时代实测；ready 已换 P1、
+   约定已换 B，重测前作参考）
 
 ---
 
-*本基线对应提交：3cbc05c 之后。所有"实测"数字可由 §6 工具复现。*
+*本基线对应提交：622f643（约定 B + ready P1 + 旋转世界轴语义）。§4 标注过的
+旧 ready 时代数字重测前作参考，其余可由 §6 工具复现。*
