@@ -240,7 +240,11 @@ def main():
         ok = ok_axis and ok_ratio
         why = []
         why.append("轴 dot=%+.2f %s" % (dot, "✓" if ok_axis else "✗ 轴不平行=交叉!"))
-        why.append("角比=%.2f %s(期望≈0.5×缩放)" % (ratio, "✓" if ok_ratio else "✗"))
+        if not ok_ratio and 0.05 <= ratio <= 0.15:
+            why.append("角比=%.2f ✗ —— ≈0.1：你可能误触 A 键进了 1:10 微调档，"
+                       "按一次 A 回常规档再重跑本步" % ratio)
+        else:
+            why.append("角比=%.2f %s(期望≈0.5×缩放)" % (ratio, "✓" if ok_ratio else "✗"))
         results.append((name, ok, "；".join(why)))
         print("   手柄转 %.1f° → 末端转 %.1f° | %s" % (ang_h, ang_e, "；".join(why)))
 
