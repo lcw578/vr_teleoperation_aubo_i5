@@ -129,10 +129,10 @@ class ClutchMapperNode(Node):
         self.pub_target = self.create_publisher(PoseStamped, TARGET_TOPIC, 10)
         self.timer = self.create_timer(1.0 / RATE_HZ, self._tick)
         self.get_logger().info(
-            "clutch_mapper 就绪（输入 %s）：脱离中。离合=buttons[0] 上升沿接合；微调 scale=%.2f；"
+            "clutch_mapper 就绪（输入 %s）：脱离中。离合=buttons[0] 上升沿接合；"
             "断流 %.1f s 自动脱离；常规档 scale=%.2f%s；head-yaw 补偿=%s"
-            % (self._pose_topic, self._scale_coarse,
-               "（A 可切 %.2f）" % SCALE_FINE if self._scale_toggle else "（单档锁定）",
+            % (self._pose_topic, POSE_STALE_DISENGAGE, self._scale_coarse,
+               "（A 可切 %.2f 微调）" % SCALE_FINE if self._scale_toggle else "（单档锁定）",
                "开" if self._yaw_comp else "关（默认）"))
 
     # ---------- 回调 ----------
