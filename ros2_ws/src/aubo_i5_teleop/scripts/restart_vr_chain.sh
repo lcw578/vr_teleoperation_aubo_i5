@@ -27,6 +27,7 @@ sleep 1
 $PY scripts/clutch_mapper_node.py --input quest > /tmp/cm6.log 2>&1 &
 sleep 1
 $PY scripts/gripper_fsm_node.py > /tmp/gf6.log 2>&1 &
+$PY scripts/controller_axes_viz.py > /tmp/cv6.log 2>&1 &
 sleep 8
 
 echo "[3/3] 快照..."

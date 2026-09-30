@@ -65,6 +65,7 @@ sleep 2
 nohup $PY scripts/quest_adapter_node.py > /tmp/quest_adapter.log 2>&1 &
 nohup $PY scripts/clutch_mapper_node.py --input quest --no-scale-toggle > /tmp/teleop_mapper.log 2>&1 &
 nohup $PY scripts/gripper_fsm_node.py > /tmp/teleop_gripper.log 2>&1 &
+nohup $PY scripts/controller_axes_viz.py > /tmp/controller_viz.log 2>&1 &
 sleep 4
 
 echo "[5/5] 状态..."

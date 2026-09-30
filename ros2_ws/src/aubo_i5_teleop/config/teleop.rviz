@@ -23,6 +23,21 @@ Panels:
 Visualization Manager:
   Class: ""
   Displays:
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Frame Timeout: 15
+      Frames:
+        All Enabled: false
+        controller_mirror:
+          Value: true
+        quest_controller:
+          Value: true
+      Marker Scale: 0.35
+      Name: ControllerAxes
+      Show Arrows: false
+      Show Axes: true
+      Show Names: false
+      Value: true
     - Alpha: 0.5
       Cell Size: 1
       Class: rviz_default_plugins/Grid
