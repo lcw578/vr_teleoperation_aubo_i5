@@ -25,10 +25,15 @@ Visualization Manager:
   Displays:
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
-      Marker Topic: /controller_viz_markers
       Name: ControllerAxes
       Namespaces:
         {}
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /controller_viz_markers
       Value: true
     - Alpha: 0.5
       Cell Size: 1
