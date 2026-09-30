@@ -20,6 +20,7 @@ import numpy as np
 import rclpy
 import mujoco
 from geometry_msgs.msg import PoseStamped, TransformStamped
+from visualization_msgs.msg import Marker, MarkerArray
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
@@ -30,6 +31,8 @@ GROUP = ["shoulder_joint", "upperArm_joint", "foreArm_joint",
          "wrist1_joint", "wrist2_joint", "wrist3_joint"]
 TIP_OFF = np.array([-0.0405, -0.0143, 0.1492])
 MIRROR_OFFSET = np.array([-0.18, 0.0, 0.10])   # 夹爪旁：操作者视角（屏幕右=-x）的右上方
+ARROW_LEN = 0.16                               # 三轴箭头长度（m）
+LIFETIME_S = 0.5                               # 标记自清理（节点死亡后不残留）
 
 
 def fast_qos():
@@ -49,6 +52,7 @@ class ControllerViz(Node):
         super().__init__("controller_axes_viz")
         self.set_parameters([rclpy.parameter.Parameter("use_sim_time", value=True)])
         self.br = TransformBroadcaster(self)
+        self.pub_markers = self.create_publisher(MarkerArray, "/controller_viz_markers", 10)
         self.ee_p = None
         self.ee_q = None            # [w,x,y,z]
         self.create_subscription(JointState, "/joint_states", self._js, fast_qos())
@@ -74,6 +78,7 @@ class ControllerViz(Node):
     def _pose(self, msg):
         p = msg.pose.position
         o = msg.pose.orientation
+        quat_wxyz = (o.w, o.x, o.y, o.z)
         now = self.get_clock().now().to_msg()
         tfs = []
         # ① 手柄真实位姿
@@ -95,9 +100,65 @@ class ControllerViz(Node):
             t2.transform.rotation = o
             tfs.append(t2)
         self.br.sendTransform(tfs)
+        # ── 三轴箭头标记（RViz MarkerArray，显示什么由这里完全决定）──
+        if self.ee_p is None:
+            return
+        ma = MarkerArray()
+        ma.markers.extend(self._triad("ctrl_real", p.x, p.y, p.z, quat_wxyz, 0).markers)
+        ma.markers.extend(self._triad("ctrl_mirror", *anchor, quat_wxyz, 10).markers)
+        self.pub_markers.publish(ma)
         self._n += 1
         if self._n % (90 * 10) == 0:
-            self.get_logger().info("转发手柄位姿 → TF（10s %d 帧）" % self._n)
+            self.get_logger().info("转发手柄位姿 → TF + 三轴标记（10s %d 帧）" % self._n)
+
+    @staticmethod
+    def _arrow(ns, mid, x, y, z, quat_wxyz, axis_idx, color):
+        """一根彩色箭头：从帧原点沿局部轴伸出（标记 pose=帧位姿，点在局部系里）。"""
+        m = Marker()
+        m.header.frame_id = "world"
+        m.ns = ns
+        m.id = mid
+        m.type = Marker.ARROW
+        m.action = Marker.ADD
+        m.pose.position.x, m.pose.position.y, m.pose.position.z = x, y, z
+        m.pose.orientation.w, m.pose.orientation.x, m.pose.orientation.y, m.pose.orientation.z = quat_wxyz
+        p0 = type(m.pose.position)()
+        p1 = type(m.pose.position)()
+        setattr(p1, "xyz"[axis_idx], ARROW_LEN)
+        m.points.append(p0)
+        m.points.append(p1)
+        m.scale.x = 0.012            # 杆径
+        m.scale.y = 0.022            # 头宽
+        m.scale.z = 0.045            # 头长
+        m.color.r, m.color.g, m.color.b, m.color.a = color
+        m.lifetime.sec = int(LIFETIME_S)
+        m.lifetime.nanosec = int((LIFETIME_S % 1) * 1e9)
+        return m
+
+    @staticmethod
+    def _ball(ns, mid, x, y, z, quat_wxyz):
+        m = Marker()
+        m.header.frame_id = "world"
+        m.ns = ns
+        m.id = mid
+        m.type = Marker.SPHERE
+        m.action = Marker.ADD
+        m.pose.position.x, m.pose.position.y, m.pose.position.z = x, y, z
+        m.pose.orientation.w, m.pose.orientation.x, m.pose.orientation.y, m.pose.orientation.z = quat_wxyz
+        m.scale.x = m.scale.y = m.scale.z = 0.035
+        m.color.r, m.color.g, m.color.b, m.color.a = (0.9, 0.9, 0.9, 1.0)
+        m.lifetime.sec = int(LIFETIME_S)
+        m.lifetime.nanosec = int((LIFETIME_S % 1) * 1e9)
+        return m
+
+    def _triad(self, ns, x, y, z, quat_wxyz, id_base):
+        """一组三轴箭头 + 原点球。轴色：x红/y绿/z蓝（局部系，随帧姿态旋转）。"""
+        colors = [(1.0, 0.2, 0.2, 1.0), (0.2, 1.0, 0.2, 1.0), (0.3, 0.3, 1.0, 1.0)]
+        ma = MarkerArray()
+        ma.markers.append(self._ball(ns, id_base, x, y, z, quat_wxyz))
+        for i, c in enumerate(colors):
+            ma.markers.append(self._arrow(ns, id_base + 1 + i, x, y, z, quat_wxyz, i, c))
+        return ma
 
 
 def main():
