@@ -24,7 +24,7 @@ $PY scripts/lara_style_tracker.py > /tmp/lt5.log 2>&1 &
 sleep 1
 $PY scripts/quest_adapter_node.py > /tmp/qa6.log 2>&1 &
 sleep 1
-$PY scripts/clutch_mapper_node.py --input quest > /tmp/cm6.log 2>&1 &
+$PY scripts/clutch_mapper_node.py --input quest --no-scale-toggle --rot-axis-map yxz > /tmp/cm6.log 2>&1 &
 sleep 1
 $PY scripts/gripper_fsm_node.py > /tmp/gf6.log 2>&1 &
 $PY scripts/controller_axes_viz.py > /tmp/cv6.log 2>&1 &

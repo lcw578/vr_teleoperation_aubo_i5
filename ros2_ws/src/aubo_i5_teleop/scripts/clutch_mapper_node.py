@@ -37,7 +37,9 @@ from std_msgs.msg import Float64MultiArray, Int8
 
 sys.path.insert(0, str(Path(__file__).parent))
 from clutch_pose_mapper import (ClutchPoseMapper, quat_wxyz_to_xyzw,  # noqa: E402
-                                quat_xyzw_to_wxyz)
+                                quat_xyzw_to_wxyz,
+                                quat_mul, quat_conj, quat_to_rotvec,
+                                rotvec_to_quat)
 
 try:
     import mujoco
@@ -79,7 +81,8 @@ _mj_bid = mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_BODY, "ag95_base")
 
 class ClutchMapperNode(Node):
     def __init__(self, input_prefix: str = "mock_vr", scale_coarse: float | None = None,
-                 yaw_comp: bool = False, no_scale_toggle: bool = False):
+                 yaw_comp: bool = False, no_scale_toggle: bool = False,
+                 rot_axis_map: str = "xyz"):
         super().__init__("clutch_mapper")
         self.set_parameters([rclpy.parameter.Parameter("use_sim_time", value=True)])
         self.mapper = ClutchPoseMapper(rot_reach_limit=0.6, pos_reach_limit=0.25)
@@ -95,6 +98,15 @@ class ClutchMapperNode(Node):
         # --no-scale-toggle（单档模式）：A 键误触会让整套测试/操作莫名变小 10 倍
         # （2026-09-29 实测踩中：左手柄 X 钮无效、右手柄易蹭到），调试期可锁定常规档
         self._scale_toggle = not no_scale_toggle
+        # 旋转轴映射（2026-10-05 试用旗子，默认 xyz=恒等=现基线逐位一致）：
+        # 把"手绕世界轴的旋转增量"逐 tick 重映射到别的轴——为"手势轴表稳定互换"
+        # 的操作者做手势对齐（2026-09-29 [诊断] 实锤：点头→世界y、拧钥匙→世界x）。
+        # ⚠️ 映射激活时 rotation_check 的 dot 判据将不适用（预期行为非 bug）。
+        # ⚠️ 滑移 reach limit 仍按原轴系计算（试用版权衡，已记录）。
+        self._rot_map = self._parse_axis_map(rot_axis_map)
+        self._tq_ref = None               # 映射激活时的接合参考目标姿态
+        if self._rot_map is not None:
+            self.get_logger().info("旋转轴映射激活：%s（试用手势对齐）" % rot_axis_map)
         self._engaged = False
         self._last_tgt_p = None            # 最后发布的基准（重接合锚点用）
         self._smooth_p = None              # EMA 平滑后的发送位姿（抗手抖/抗极限环）
@@ -176,6 +188,44 @@ class ClutchMapperNode(Node):
     def _on_status(self, msg):
         self._status = int(msg.data)
 
+    @staticmethod
+    def _parse_axis_map(s):
+        """"xyz"=恒等（返回 None=不启用）；其余如 "yxz"、"-yxz"、"x-yz"：
+        第 j 个 token = 目标轴 j 取哪个源轴（可带负号）。det 可为 −1（逐 tick 小增量的
+        实用映射，非共轭旋转——语义见 __init__ 注释）。"""
+        s = s.strip().lower()
+        if s == "xyz":
+            return None
+        axes = {"x": 0, "y": 1, "z": 2}
+        M = np.zeros((3, 3))
+        i, col = 0, 0
+        while i < len(s):
+            sign = 1.0
+            if s[i] in "+-":
+                sign = -1.0 if s[i] == "-" else 1.0
+                i += 1
+            if i >= len(s) or s[i] not in axes:
+                raise ValueError("--rot-axis-map 格式错：%r（例：xyz / yxz / -yxz）" % s)
+            M[axes[s[i]], col] = sign
+            col += 1
+            i += 1
+        if col != 3:
+            raise ValueError("--rot-axis-map 需要 3 个轴 token：%r" % s)
+        return M
+
+    def _remap_tq(self, tq):
+        """把【接合以来的累计目标旋转】按 _rot_map 换轴后重投到接合参考上。
+        必须用累计量而非逐 tick 增量：输出路径与输入路径分离后，逐 tick 增量会
+        混入发散的交叉分量（首版实测 159° 伪旋转）。单轴手势下此映射是精确的。"""
+        tq = np.asarray(tq, float)
+        if self._tq_ref is None:
+            self._tq_ref = tq.copy()
+            return tq
+        d = quat_mul(tq, quat_conj(self._tq_ref))     # 接合以来累计增量（世界系）
+        rv2 = self._rot_map @ quat_to_rotvec(d)
+        out_q = quat_mul(rotvec_to_quat(rv2), self._tq_ref)
+        return out_q / np.linalg.norm(out_q)
+
     # ---------- 状态切换 ----------
     def _engage(self):
         self.mapper.scale = self.scale
@@ -205,6 +255,7 @@ class ClutchMapperNode(Node):
                                    % (math.degrees(dyaw), math.degrees(self._yaw_calib)))
         self.mapper.engage(self._ctrl_p, self._ctrl_q_wxyz, anchor_p, anchor_q)
         self._engaged = True
+        self._tq_ref = None               # 轴映射从新锚点重新起步
         self._smooth_p = None              # 新会话从锚点重新起步
         qd = max(abs(self._q[j][1]) for j in GROUP)
         warn = "（⚠️ 臂运动中接合）" if qd > QD_WARN else ""
@@ -214,6 +265,7 @@ class ClutchMapperNode(Node):
     def _disengage(self, reason):
         self.mapper.disengage()
         self._engaged = False
+        self._tq_ref = None
         self.get_logger().warn("脱离（%s）——停发目标，臂走完最后目标后冻结" % reason)
 
     # ---------- 主循环 ----------
@@ -269,6 +321,8 @@ class ClutchMapperNode(Node):
         if out is None:
             return
         tp, tq = out
+        if self._rot_map is not None:
+            tq = self._remap_tq(tq)       # 旋转轴映射（试用，见 __init__ 注释）
         # 逐 tick EMA 平滑（位置）：目标直通时手部高频抖动会全量传到臂
         # （2026-09-27 取证：关节速度 p50 2.16 rad/s、峰值 4.84——超厂商限值）。
         # 接合瞬间从锚点起步（不是从旧平滑值），避免初始滑移。
@@ -306,6 +360,9 @@ def main():
                     help="启用 head-yaw 平移补偿（默认关——头显内有场景画面后再开）")
     ap.add_argument("--no-scale-toggle", action="store_true",
                     help="单档模式：禁用 A 键切档，锁定常规档（调试期防误触）")
+    ap.add_argument("--rot-axis-map", default="xyz",
+                    help="旋转轴映射（试用）：xyz=恒等（默认，现基线）；yxz=交换 x/y；"
+                         "可带符号如 -yxz。激活后 rotation_check 的 dot 判据不适用")
     args = ap.parse_args()
     rclpy.init()
     sc = args.scale
@@ -313,7 +370,8 @@ def main():
         sc = 0.5
     node = ClutchMapperNode(input_prefix=args.input, scale_coarse=sc,
                             yaw_comp=args.yaw_comp,
-                            no_scale_toggle=args.no_scale_toggle)
+                            no_scale_toggle=args.no_scale_toggle,
+                            rot_axis_map=args.rot_axis_map)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

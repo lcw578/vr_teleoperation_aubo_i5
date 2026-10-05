@@ -32,6 +32,14 @@ clutch_mapper_node.py --input quest（100 Hz）
    · Grip 按住=接合（buttons[1]），松开=脱离
    · ClutchPoseMapper（上游移植，20 项测试）：滑移 reach limit
      rot 0.6 rad / pos 0.25 m
+   · **旋转轴映射 --rot-axis-map yxz（2026-10-05 定为基线）**：
+     用户手势轴表稳定互换（09-29 与 10-05 两次 [诊断] 实测一致：
+     用户"点头"动作实际绕世界 y、"拧钥匙"动作实际绕世界 x），
+     映射层把接合以来的累计旋转 x↔y 互换对齐直觉
+     （用户真机确认"完全正确"）。z 直通=水平摆不受影响；平移不经过此映射。
+     回滚=去旗子重启 mapper。⚠️ 映射激活时 rotation_check 的 pitch/roll
+     行必显示轴 dot ✗——预期行为非 bug（它验的是未换轴语义）；
+     回归验证映射层本身时临时去旗再跑。
    · yaw 修正默认关（--yaw-comp 可开——头显内无画面时扭头看屏会误触发）
    · 缩放 1:2（quest 默认 scale=0.5）/ 1:10 微调（SCALE_FINE）
    · 断流 0.3 s 自动脱离
