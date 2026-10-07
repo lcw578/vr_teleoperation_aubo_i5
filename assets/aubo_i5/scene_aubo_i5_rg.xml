@@ -1,0 +1,224 @@
+  <!-- 2026-09-22 变更（本项目特有，注意与生成器不同步）：
+       给全部 13 个刚体加 gravcomp="1.0"（MuJoCo 的重力补偿，取值理由见下）。
+       原因：MoveIt Servo 的位置命令是基于**实测状态**构造的（servo_calcs.cpp:738-763），
+       于是 ctrl ≈ q，位置执行器的力矩 kp*(ctrl-q) ≈ 0 —— 弹簧被抵消、执行器退化成阻尼器，
+       重力无人对抗，机械臂会以约 0.045 rad/s 匀速下坠（实测末端约 6 cm/s）。
+       真机的 Aubo 控制器本来就做重力补偿，所以这不是"作弊"，而是把缺失的那一环补上。
+       ⚠️ 2026-09-23 修正：曾按要求改为 0.98（留 2% 残余，避免"补偿零误差"的理想化）。
+          该值在**位置模式**下只造成有界的静态下垂（实测 0.98 时归位静差 4e-5 rad，可忽略），
+          但在**速度模式**下会变成**持续漂移**——因为速度执行器是 τ = kv(ctrl − q̇)，
+          残余重力表现为速度静差 0.02·τg/kv ≈ 2e-3 rad/s（肩关节实测吻合）。
+          后果实测到了：无人指挥时机械臂缓慢漂移，十几分钟后折成近奇异位形（条件数 291）。
+          真机控制器是"保持位置"的，所以**精确补偿才是更忠实的模型**，故改回 1.0。
+       实测（2026-09-23）：本臂 kp=25000 下，2% 残差的静态下垂仅 2%*τg/kp ≈ 3e-5 rad，
+       对跟踪与增益标定可忽略；要看出差别需把该值降到 0.9 以下。
+       实测效果：零误差目标下末端位移 0.406 m → 0.0000 m；方向也随之正确。
+       ⚠️ 本文件由 tomato_robot/scripts/aubo_urdf_to_mjcf.py 生成后手工修改；
+          重新生成会丢掉这条，需要重新加上。 -->
+<mujoco model="aubo_i5_37">
+  <compiler angle="radian"/>
+
+  <asset>
+    <mesh name="link0" content_type="model/stl" file="meshes/aubo_i5_37/collision/link0.STL"/>
+    <mesh name="link1" content_type="model/stl" file="meshes/aubo_i5_37/collision/link1.STL"/>
+    <mesh name="link2" content_type="model/stl" file="meshes/aubo_i5_37/collision/link2.STL"/>
+    <mesh name="link3" content_type="model/stl" file="meshes/aubo_i5_37/collision/link3.STL"/>
+    <mesh name="link4" content_type="model/stl" file="meshes/aubo_i5_37/collision/link4.STL"/>
+    <mesh name="link5" content_type="model/stl" file="meshes/aubo_i5_37/collision/link5.STL"/>
+    <mesh name="link6" content_type="model/stl" file="meshes/aubo_i5_37/collision/link6.STL"/>
+    <mesh name="link0_0" content_type="model/obj" file="meshes_visual/link0_0.obj"/>
+    <mesh name="link1_0" content_type="model/obj" file="meshes_visual/link1_0.obj"/>
+    <mesh name="link1_1" content_type="model/obj" file="meshes_visual/link1_1.obj"/>
+    <mesh name="link2_0" content_type="model/obj" file="meshes_visual/link2_0.obj"/>
+    <mesh name="link2_1" content_type="model/obj" file="meshes_visual/link2_1.obj"/>
+    <mesh name="link2_2" content_type="model/obj" file="meshes_visual/link2_2.obj"/>
+    <mesh name="link3_0" content_type="model/obj" file="meshes_visual/link3_0.obj"/>
+    <mesh name="link3_1" content_type="model/obj" file="meshes_visual/link3_1.obj"/>
+    <mesh name="link4_0" content_type="model/obj" file="meshes_visual/link4_0.obj"/>
+    <mesh name="link4_1" content_type="model/obj" file="meshes_visual/link4_1.obj"/>
+    <mesh name="link5_0" content_type="model/obj" file="meshes_visual/link5_0.obj"/>
+    <mesh name="link5_1" content_type="model/obj" file="meshes_visual/link5_1.obj"/>
+    <mesh name="link6_0" content_type="model/obj" file="meshes_visual/link6_0.obj"/>
+    <material name="aubo_orange"   rgba="0.9098 0.5137 0.0000 1" specular="0" shininess="0"/>
+    <material name="aubo_gray"     rgba="0.4118 0.4118 0.4118 1" specular="0" shininess="0"/>
+    <material name="aubo_darkgray" rgba="0.3098 0.3098 0.3098 1" specular="0" shininess="0"/>
+    <mesh name="ag95_base_link_v" content_type="model/stl" file="meshes_ag95/visual/base_link.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="ag95_base_link_c" content_type="model/stl" file="meshes_ag95/collision/base_link.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="ag95_gripper_body_v" content_type="model/stl" file="meshes_ag95/visual/gripper_body.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="ag95_gripper_body_c" content_type="model/stl" file="meshes_ag95/collision/gripper_body.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="ag95_inner_knuckle_v" content_type="model/stl" file="meshes_ag95/visual/inner_knuckle.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="ag95_inner_knuckle_c" content_type="model/stl" file="meshes_ag95/collision/inner_knuckle.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="ag95_outer_knuckle_v" content_type="model/stl" file="meshes_ag95/visual/outer_knuckle.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="ag95_outer_knuckle_c" content_type="model/stl" file="meshes_ag95/collision/outer_knuckle.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="ag95_finger_v" content_type="model/stl" file="meshes_ag95/visual/finger.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="ag95_finger_c" content_type="model/stl" file="meshes_ag95/collision/finger.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="ag95_finger_pad_v" content_type="model/stl" file="meshes_ag95/visual/finger_pad.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="ag95_finger_pad_c" content_type="model/stl" file="meshes_ag95/collision/finger_pad.stl" scale="0.001 0.001 0.001"/>
+    <material name="ag95_black" rgba="0.10 0.10 0.10 1" specular="0.4" shininess="0.3"/>
+    <material name="ag95_grey"  rgba="0.79 0.82 0.93 1" specular="0.4" shininess="0.3"/>
+    <mesh name="g_part_003_solid_003" file="meshes_rg_gripper/part_003_solid_003.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_010_solid_010" file="meshes_rg_gripper/part_010_solid_010.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_011_solid_011" file="meshes_rg_gripper/part_011_solid_011.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_012_solid_012" file="meshes_rg_gripper/part_012_solid_012.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_013_solid_013" file="meshes_rg_gripper/part_013_solid_013.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_027_solid_027" file="meshes_rg_gripper/part_027_solid_027.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_028_solid_028" file="meshes_rg_gripper/part_028_solid_028.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_029_solid_029" file="meshes_rg_gripper/part_029_solid_029.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_030_solid_030" file="meshes_rg_gripper/part_030_solid_030.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_031_solid_031" file="meshes_rg_gripper/part_031_solid_031.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_032_solid_032" file="meshes_rg_gripper/part_032_solid_032.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_033_solid_033" file="meshes_rg_gripper/part_033_solid_033.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_034_solid_034" file="meshes_rg_gripper/part_034_solid_034.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_035_solid_035" file="meshes_rg_gripper/part_035_solid_035.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_036_solid_036" file="meshes_rg_gripper/part_036_solid_036.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_037_solid_037" file="meshes_rg_gripper/part_037_solid_037.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_038_solid_038" file="meshes_rg_gripper/part_038_solid_038.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_039_solid_039" file="meshes_rg_gripper/part_039_solid_039.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_040_solid_040" file="meshes_rg_gripper/part_040_solid_040.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_041_solid_041" file="meshes_rg_gripper/part_041_solid_041.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_042_solid_042" file="meshes_rg_gripper/part_042_solid_042.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_043_solid_043" file="meshes_rg_gripper/part_043_solid_043.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_045_solid_045" file="meshes_rg_gripper/part_045_solid_045.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_044_solid_044" file="meshes_rg_gripper/part_044_solid_044.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_046_solid_046" file="meshes_rg_gripper/part_046_solid_046.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_047_solid_047" file="meshes_rg_gripper/part_047_solid_047.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_001_solid_001" file="meshes_rg_gripper/part_001_solid_001.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_009_solid_009" file="meshes_rg_gripper/part_009_solid_009.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_050_solid_050" file="meshes_rg_gripper/part_050_solid_050.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_004_solid_004" file="meshes_rg_gripper/part_004_solid_004.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_048_solid_048" file="meshes_rg_gripper/part_048_solid_048.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_007_solid_007" file="meshes_rg_gripper/part_007_solid_007.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_049_solid_049" file="meshes_rg_gripper/part_049_solid_049.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_008_solid_008" file="meshes_rg_gripper/part_008_solid_008.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_005_solid_005" file="meshes_rg_gripper/part_005_solid_005.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_006_solid_006" file="meshes_rg_gripper/part_006_solid_006.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="g_part_002_solid_002" file="meshes_rg_gripper/part_002_solid_002.stl" scale="0.001 0.001 0.001" inertia="shell"/>
+    <mesh name="c_part_362" file="meshes_rg_gripper/part_362_baked.stl" scale="1 1 1" inertia="shell"/>
+    <mesh name="c_part_363" file="meshes_rg_gripper/part_363_baked.stl" scale="1 1 1" inertia="shell"/>
+    <mesh name="c_part_364" file="meshes_rg_gripper/part_364_baked.stl" scale="1 1 1" inertia="shell"/>
+    <mesh name="c_part_365" file="meshes_rg_gripper/part_365_baked.stl" scale="1 1 1" inertia="shell"/>
+    <mesh name="c_part_366" file="meshes_rg_gripper/part_366_baked.stl" scale="1 1 1" inertia="shell"/>
+    <mesh name="c_part_367" file="meshes_rg_gripper/part_367_baked.stl" scale="1 1 1" inertia="shell"/>
+    <mesh name="c_part_368" file="meshes_rg_gripper/part_368_baked.stl" scale="1 1 1" inertia="shell"/>
+    <mesh name="c_part_369" file="meshes_rg_gripper/part_369_baked.stl" scale="1 1 1" inertia="shell"/>
+    <mesh name="c_part_371" file="meshes_rg_gripper/part_371_baked.stl" scale="1 1 1" inertia="shell"/>
+  </asset>
+
+  <worldbody>
+    <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_gray" mesh="link0_0"/>
+    <geom type="mesh" group="3" rgba="0.91 0.52 0.0 1" mesh="link0"/>
+    <body name="shoulder_Link" gravcomp="1.0" pos="0 0 0.122" quat="0 0 0 1">
+      <inertial pos="-1e-05 0.001807 -0.013854" quat="0.999902 -0.0139146 -0.000554021 -0.0014145" mass="4.84858" diaginertia="0.011842 0.0118029 0.00810013"/>
+      <joint name="shoulder_joint" range="-3.04 3.04" actuatorfrcrange="-80 80" damping="0.1" armature="1.5"/>
+      <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_gray" mesh="link1_0"/>
+        <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_orange" mesh="link1_1"/>
+      <geom type="mesh" group="3" rgba="0.91 0.52 0.0 1" mesh="link1"/>
+      <body name="upperArm_Link" gravcomp="1.0" pos="0 0.1215 0" quat="0.5 -0.5 -0.5 -0.5">
+        <inertial pos="0.204 0 0.006603" quat="0.500012 0.500012 0.499988 0.499988" mass="10.8363" diaginertia="0.432805 0.425155 0.026024"/>
+        <joint name="upperArm_joint" range="-3.04 3.04" actuatorfrcrange="-80 80" damping="0.1" armature="1.5"/>
+        <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_gray" mesh="link2_0"/>
+        <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_darkgray" mesh="link2_1"/>
+        <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_orange" mesh="link2_2"/>
+        <geom type="mesh" group="3" rgba="0.91 0.52 0.0 1" mesh="link2"/>
+        <body name="foreArm_Link" gravcomp="1.0" pos="0.408 0 0" quat="0 -1 0 0">
+          <inertial pos="0.264626 -2e-05 0.093611" quat="0.498564 0.501492 0.499882 0.500057" mass="2.84917" diaginertia="0.065327 0.0646765 0.00363354"/>
+          <joint name="foreArm_joint" range="-3.04 3.04" actuatorfrcrange="-60 60" damping="0.1" armature="1.2"/>
+          <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_orange" mesh="link3_0"/>
+        <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_gray" mesh="link3_1"/>
+          <geom type="mesh" group="3" rgba="0.91 0.52 0.0 1" mesh="link3"/>
+          <body name="wrist1_Link" gravcomp="1.0" pos="0.376 0 0" quat="0 0.707107 0.707107 0">
+            <inertial pos="3.8e-05 0.011278 -0.001539" quat="0.68759 0.725716 -0.0157544 0.0175555" mass="1.62802" diaginertia="0.00195105 0.00193322 0.00115172"/>
+            <joint name="wrist1_joint" range="-3.04 3.04" actuatorfrcrange="-16 16" damping="0.1" armature="0.05"/>
+            <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_orange" mesh="link4_0"/>
+        <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_gray" mesh="link4_1"/>
+            <geom type="mesh" group="3" rgba="0.91 0.52 0.0 1" mesh="link4"/>
+            <body name="wrist2_Link" gravcomp="1.0" pos="0 0.1025 0" quat="0.707107 -0.707107 0 0">
+              <inertial pos="-3.8e-05 -0.011278 -0.001539" quat="0.68759 0.725716 -0.0157544 0.0175555" mass="1.62802" diaginertia="0.00195105 0.00193322 0.00115172"/>
+              <joint name="wrist2_joint" range="-3.04 3.04" actuatorfrcrange="-16 16" damping="0.1" armature="0.05"/>
+              <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_orange" mesh="link5_0"/>
+        <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_gray" mesh="link5_1"/>
+              <geom type="mesh" group="3" rgba="0.91 0.52 0.0 1" mesh="link5"/>
+              <body name="wrist3_Link" gravcomp="1.0" pos="0 -0.094 0" quat="0.707107 0.707107 0 0">
+                <inertial pos="2.2e-05 0.0006 -0.017081" quat="0.503459 0.496517 -0.496517 0.503459" mass="0.1978" diaginertia="0.000184014 0.000118 0.000111986"/>
+                <joint name="wrist3_joint" range="-3.04 3.04" actuatorfrcrange="-10 10" damping="0.1" armature="0.01"/>
+                <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_gray" mesh="link6_0"/>
+                <geom type="mesh" group="3" rgba="0.91 0.52 0.0 1" mesh="link6"/>
+
+                  <!-- ============ 自研齿条夹爪（rg）============
+     来源：/data/robot_assembly/model/tomato_picker.xml（整机模型，论文 Xu et al. JFR 2026）
+     原样提取 + rg_ 前缀重命名；几何/惯量/耦合/执行器参数一字未改。
+     挂载 pos=[0,0,0.050952] quat=(0,0.707107,0.707107,0) —— 照抄整机模型，
+     已实测：工具轴与 AG95 夹角 0.0°、帧约定等价（见 build 脚本头）。
+     抓取点 = rg_gear 原点沿工具轴 +0.10m，在 rg_base 系 = [0,0,-0.1048]。
+     生成器：tools/build_rg_gripper_scene.py（勿手改本文件）
+     -->
+          <body name="rg_base" gravcomp="1.0" pos="0.000000 0.000000 0.050952" quat="0.000000 0.707107 0.707107 0.000000">
+                    <inertial pos="0.010859 0.006547 -0.003183" mass="0.348363" fullinertia="0.000394488 0.000557312 0.000646813 -0.00012937012 -0.00000898267 -0.00000904808"/>
+                    <geom name="base_link_mesh_1" type="mesh" mesh="g_part_003_solid_003" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_2" type="mesh" mesh="g_part_010_solid_010" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_3" type="mesh" mesh="g_part_011_solid_011" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_4" type="mesh" mesh="g_part_012_solid_012" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_5" type="mesh" mesh="g_part_013_solid_013" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_6" type="mesh" mesh="g_part_027_solid_027" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_7" type="mesh" mesh="g_part_028_solid_028" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_8" type="mesh" mesh="g_part_029_solid_029" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_9" type="mesh" mesh="g_part_030_solid_030" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_10" type="mesh" mesh="g_part_031_solid_031" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_11" type="mesh" mesh="g_part_032_solid_032" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_12" type="mesh" mesh="g_part_033_solid_033" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_13" type="mesh" mesh="g_part_034_solid_034" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_14" type="mesh" mesh="g_part_035_solid_035" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_15" type="mesh" mesh="g_part_036_solid_036" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_16" type="mesh" mesh="g_part_037_solid_037" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_17" type="mesh" mesh="g_part_038_solid_038" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_18" type="mesh" mesh="g_part_039_solid_039" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_19" type="mesh" mesh="g_part_040_solid_040" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_20" type="mesh" mesh="g_part_041_solid_041" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_21" type="mesh" mesh="g_part_042_solid_042" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_22" type="mesh" mesh="g_part_043_solid_043" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_23" type="mesh" mesh="g_part_045_solid_045" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_24" type="mesh" mesh="g_part_044_solid_044" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_25" type="mesh" mesh="g_part_046_solid_046" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_26" type="mesh" mesh="g_part_047_solid_047" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_27" type="mesh" mesh="g_part_001_solid_001" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="base_link_mesh_28" type="mesh" mesh="g_part_009_solid_009" pos="0.044658438 -0.040628404 0.036834671" euler="0 0 0" group="1" rgba="0.58 0.59 0.62 1" />
+                    <geom name="cam_part_363" type="mesh" mesh="c_part_363" group="1" rgba="0.15 0.15 0.16 1"/>
+                    <geom name="cam_part_364" type="mesh" mesh="c_part_364" group="1" rgba="0.15 0.15 0.16 1"/>
+                    <geom name="cam_part_365" type="mesh" mesh="c_part_365" group="1" rgba="0.15 0.15 0.16 1"/>
+                    <geom name="cam_part_366" type="mesh" mesh="c_part_366" group="1" rgba="0.15 0.15 0.16 1"/>
+                    <geom name="cam_part_367" type="mesh" mesh="c_part_367" group="1" rgba="0.15 0.15 0.16 1"/>
+                    <geom name="cam_part_368" type="mesh" mesh="c_part_368" group="1" rgba="0.15 0.15 0.16 1"/>
+                    <geom name="cam_part_369" type="mesh" mesh="c_part_369" group="1" rgba="0.15 0.15 0.16 1"/>
+                    <geom name="ad_part_362" type="mesh" mesh="c_part_362" group="1" rgba="0.62 0.63 0.66 1"/>
+                    <geom name="ad_part_371" type="mesh" mesh="c_part_371" group="1" rgba="0.62 0.63 0.66 1"/>
+                  <camera name="cam_wrist_d405" pos="0.106042 -0.001376 0.025985" quat="0.707109 0.000006 -0.000002 -0.707105" fovy="58.0"/>
+                  <body name="rg_gear" gravcomp="1.0" pos="1.89e-09 2.2e-09 -0.0047500006" euler="3.1415927 0 0">
+                    <joint name="rg_gear_joint" type="hinge" pos="0 0 0" axis="0 0 1" limited="true" actuatorfrclimited="true" range="-0.474409 0.463234" damping="0.002" actuatorfrcrange="-2 2" frictionloss="0.005" />
+                    <inertial pos="3.0045713e-07 -1.0867786e-05 0.026885779" mass="0.022650932" quat="0.99991087 -9.8761648e-05 -1.4878863e-06 0.013350794" diaginertia="2.8015663e-06 2.7182082e-06 4.5617203e-06" />
+                    <geom name="gear_link_mesh_1" type="mesh" mesh="g_part_050_solid_050" pos="0.044658436 0.040628406 -0.041584672" euler="-3.1415927 0 0" group="1" rgba="0.50 0.51 0.54 1" />
+                  </body>
+                  <body name="rg_right_finger" gravcomp="1.0" pos="0.0025000024 -0.032129281 -0.041864492" euler="1.5492542 0 0">
+                    <joint name="rg_right_finger_joint" type="slide" pos="0 0 0" axis="0 0 1" limited="true" range="-0.010648 0.010883" damping="0.05" />
+                    <inertial pos="-0.014051232 -0.017179277 -0.016396853" mass="0.023069919" quat="0.97857788 -0.058044502 0.11602652 0.15985625" diaginertia="2.2182048e-05 5.4852153e-06 1.981857e-05" />
+                    <geom name="right_finger_link_mesh_1" type="mesh" mesh="g_part_004_solid_004" pos="0.042158436 0.078497829 0.010192365" euler="-1.5492542 0 0" group="1" rgba="0.50 0.51 0.54 1" />
+                    <geom name="right_finger_link_mesh_2" type="mesh" mesh="g_part_048_solid_048" pos="0.042158436 0.078497829 0.010192365" euler="-1.5492542 0 0" group="1" rgba="0.50 0.51 0.54 1" />
+                    <geom name="right_finger_link_mesh_3" type="mesh" mesh="g_part_007_solid_007" pos="0.042158436 0.078497829 0.010192365" euler="-1.5492542 0 0" group="1" rgba="0.50 0.51 0.54 1" />
+                  </body>
+                  <body name="rg_left_finger" gravcomp="1.0" pos="0.0022603458 0.022856628 -0.042805662" euler="-1.5710562 -0.00027471871 0">
+                    <joint name="rg_left_finger_joint" type="slide" pos="0 0 0" axis="0 0 1" limited="true" range="-0.012610 0.011837" damping="0.05" />
+                    <inertial pos="0.0074745805 0.018070037 -0.0079754345" mass="0.025656609" quat="0.97682392 0.066355129 -0.12913666 0.15727602" diaginertia="2.5231822e-05 6.8915999e-06 2.2743687e-05" />
+                    <geom name="left_finger_link_mesh_1" type="mesh" mesh="g_part_049_solid_049" pos="0.042380645 -0.079623834 -0.06351737" euler="1.5710562 -7.1387875e-08 -0.0002747187" group="1" rgba="0.50 0.51 0.54 1" />
+                    <geom name="left_finger_link_mesh_2" type="mesh" mesh="g_part_008_solid_008" pos="0.042380645 -0.079623834 -0.06351737" euler="1.5710562 -7.1387875e-08 -0.0002747187" group="1" rgba="0.50 0.51 0.54 1" />
+                    <geom name="left_finger_link_mesh_3" type="mesh" mesh="g_part_005_solid_005" pos="0.042380645 -0.079623834 -0.06351737" euler="1.5710562 -7.1387875e-08 -0.0002747187" group="1" rgba="0.50 0.51 0.54 1" />
+                    <geom name="left_finger_link_mesh_4" type="mesh" mesh="g_part_006_solid_006" pos="0.042380645 -0.079623834 -0.06351737" euler="1.5710562 -7.1387875e-08 -0.0002747187" group="1" rgba="0.50 0.51 0.54 1" />
+                    <geom name="left_finger_link_mesh_5" type="mesh" mesh="g_part_002_solid_002" pos="0.042380645 -0.079623834 -0.06351737" euler="1.5710562 -7.1387875e-08 -0.0002747187" group="1" rgba="0.50 0.51 0.54 1" />
+                  </body>
+                  </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>
