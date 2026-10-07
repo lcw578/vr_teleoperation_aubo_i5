@@ -93,11 +93,17 @@ STATUS_MEANING = {0: "无警告", 1: "奇异降速", 2: "奇异急停", 3: "碰�
                   4: "碰撞急停", 5: "关节到界", 6: "离开奇异降速", -1: "无效"}
 
 # ── FK 模型（仪器约定 4）：与 gen_bench_poses.py / check_traj_contacts.py 同一套已验证资产 ──
-MJCF_MODEL = "/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2.xml"
+# ---- 夹爪档（TELEOP_GRIPPER=ag95|rg）：EE 体名/抓取点/场景文件随夹爪切换 ----
+import os as _os
+import sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from gripper_profile import resolve as _resolve_gripper  # noqa: E402
+GRIP = _resolve_gripper()
+MJCF_MODEL = GRIP["mjcf"]
 # MJCF ag95_base → 夹持点（gripper_tip_link）。2026-09-24 现场对齐验证（verify_fk_vs_tf.py，
 # 栈运行中，139 样本）：与 TF 的 world→gripper_tip_link 位置差中位 0.000000 m、
 # 姿态差（1−|四元数点积|）中位 0.00e+00 —— 两个 frame 完全重合，可直接互换。
-TIP_OFF = (-0.0405, -0.0143, 0.1492)
+TIP_OFF = tuple(GRIP["tip_offset"])
 
 _mj_model = mujoco.MjModel.from_xml_path(MJCF_MODEL)
 _mj_data = mujoco.MjData(_mj_model)
@@ -105,7 +111,7 @@ _mj_qadr = [_mj_model.jnt_qposadr[mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjO
             for j in GROUP]
 _mj_dofs = [_mj_model.jnt_dofadr[mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_JOINT, j)]
             for j in GROUP]
-_mj_bid = mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_BODY, "ag95_base")
+_mj_bid = mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_BODY, GRIP["ee_body"])
 
 # ee() 返回的旋转对象：带 .x/.y/.z/.w 属性，与 TF 的 Quaternion 同约定（x,y,z,w）
 from collections import namedtuple

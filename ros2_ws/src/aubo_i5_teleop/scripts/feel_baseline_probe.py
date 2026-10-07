@@ -45,10 +45,16 @@ from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState, Joy
 
-MJCF = "/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2.xml"
+# ---- 夹爪档（TELEOP_GRIPPER=ag95|rg）：EE 体名/抓取点/场景文件随夹爪切换 ----
+import os as _os
+import sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from gripper_profile import resolve as _resolve_gripper  # noqa: E402
+GRIP = _resolve_gripper()
+MJCF = GRIP["mjcf"]
 GROUP = ["shoulder_joint", "upperArm_joint", "foreArm_joint",
          "wrist1_joint", "wrist2_joint", "wrist3_joint"]
-TIP_OFF = np.array([-0.0405, -0.0143, 0.1492])   # ag95_base → 夹持点（与 mapper 一致）
+TIP_OFF = np.array(GRIP["tip_offset"])   # ag95_base → 夹持点（与 mapper 一致）
 
 # ---- 可调缺省值（非标定结论）----
 REST_SECONDS = 30.0        # 静息段时长
@@ -69,7 +75,7 @@ _mj_model = mujoco.MjModel.from_xml_path(MJCF)
 _mj_data = mujoco.MjData(_mj_model)
 _qadr = [_mj_model.jnt_qposadr[mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_JOINT, j)]
          for j in GROUP]
-_bid = mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_BODY, "ag95_base")
+_bid = mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_BODY, GRIP["ee_body"])
 
 
 def fast_qos():

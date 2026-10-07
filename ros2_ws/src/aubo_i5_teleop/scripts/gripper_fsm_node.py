@@ -21,8 +21,14 @@ from std_msgs.msg import Float64MultiArray
 
 JOY_TOPICS = ["/mock_vr/joy", "/quest/joy"]   # 同时订两路：键盘 Mock 与真头显（2026-09-27 功能缺口：QUEST 会话 FSM 收不到消息）
 CMD_TOPIC = "/gripper_controller/commands"
-OPEN_V = 0.0
-CLOSED_V = 0.9
+# ---- 夹爪档（TELEOP_GRIPPER=ag95|rg）：EE 体名/抓取点/场景文件随夹爪切换 ----
+import os as _os
+import sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from gripper_profile import resolve as _resolve_gripper  # noqa: E402
+GRIP = _resolve_gripper()
+OPEN_V = GRIP["open"]
+CLOSED_V = GRIP["close"]
 RATE = 1.5              # ctrl 单位/秒（0→0.9 约 0.6 s）
 RATE_HZ = 50.0
 
@@ -45,8 +51,9 @@ class GripperFSM(Node):
             self.create_subscription(Joy, t, self._on_joy, fast_qos())
         self.pub = self.create_publisher(Float64MultiArray, CMD_TOPIC, 10)
         self.timer = self.create_timer(1.0 / RATE_HZ, self._tick)
-        self.get_logger().info("夹爪 FSM 就绪：OPEN(0.0)↔CLOSED(0.9)，斜率 %.1f/s，"
-                               "buttons[1] 上升沿切换" % RATE)
+        self.get_logger().info("夹爪 FSM 就绪（档=%s）：OPEN(%.3f)↔CLOSED(%.3f)，斜率 %.1f/s，"
+                               "buttons[1] 上升沿切换"
+                               % (GRIP["name"], OPEN_V, CLOSED_V, RATE))
 
     def _on_joy(self, msg):
         if len(msg.buttons) < 2 or len(msg.axes) < 1:

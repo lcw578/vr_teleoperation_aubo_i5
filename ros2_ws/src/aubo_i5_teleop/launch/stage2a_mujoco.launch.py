@@ -34,10 +34,31 @@ from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
+MODEL_AG95 = "/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2.xml"
+MODEL_RG = "/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2_rg.xml"
+
 
 def launch_setup(context, *args, **kwargs):
     teleop_share = get_package_share_directory("aubo_i5_teleop")
-    controllers_file = os.path.join(teleop_share, "config", "controllers.yaml")
+
+    # ── 夹爪档（2026-10-05）───────────────────────────────────────────────
+    # ag95 = 基线（AG95 两指夹爪，一切照旧）；rg = 自研齿条夹爪（整机模型提取，
+    # 论文 Xu et al. JFR 2026）。两套场景/控制器配置并存，切换只改这一个参数。
+    # ⚠️ 只切这里不够：节点侧（tracker/mapper/fsm/viz）的 EE 体名与抓取点由环境变量
+    #    TELEOP_GRIPPER 决定——authoritative_session.sh 会把两边一起设好；
+    #    手工起节点时必须 export TELEOP_GRIPPER=rg，否则 FK 找不到末端体。
+    gripper = LaunchConfiguration("gripper").perform(context).lower()
+    if gripper not in ("ag95", "rg"):
+        raise RuntimeError("gripper 只能取 ag95 / rg，收到 %r" % gripper)
+    controllers_file = os.path.join(
+        teleop_share, "config",
+        "controllers_rg.yaml" if gripper == "rg" else "controllers.yaml")
+
+    # 模型：只在"未显式指定"（值仍等于默认路径）时按夹爪档替换，
+    # 显式传 mujoco_model:=<别的文件> 的用法（如速度模式对照实验）不受影响。
+    mujoco_model = LaunchConfiguration("mujoco_model").perform(context)
+    if gripper == "rg" and mujoco_model == MODEL_AG95:
+        mujoco_model = MODEL_RG
 
     # 2026-09-22 修正：原来这里没有把下面声明的 mujoco_model 参数传给 xacro，
     # 于是 `ros2 launch ... mujoco_model:=<别的文件>` 被**静默忽略**，永远加载 xacro 里的默认值。
@@ -55,7 +76,7 @@ def launch_setup(context, *args, **kwargs):
             ),
             " ",
             "mujoco_model:=",
-            LaunchConfiguration("mujoco_model"),
+            mujoco_model,
             " ",
             # 命令接口类型必须与 MJCF 的执行器类型一致，否则 mujoco_ros2_control 会在
             # register_urdf_joints 里抛异常并 abort（实测过）。
@@ -65,6 +86,10 @@ def launch_setup(context, *args, **kwargs):
             # headless=true：不开交互窗口，GPU 让给三路相机渲染（录制栈用）
             "headless:=",
             LaunchConfiguration("headless"),
+            " ",
+            # 夹爪档必须同时传给 xacro：URDF 侧决定 RViz 显示与 ros2_control 关节注册
+            "gripper:=",
+            gripper,
         ]
     )
     robot_description = {
@@ -196,8 +221,16 @@ def generate_launch_description():
         [
             DeclareLaunchArgument(
                 "mujoco_model",
-                default_value="/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2.xml",
+                default_value=MODEL_AG95,
                 description="传给 URDF 的 MuJoCo 模型路径",
+            ),
+            DeclareLaunchArgument(
+                "gripper",
+                default_value="ag95",
+                choices=["ag95", "rg"],
+                description="夹爪档：ag95（基线）/ rg（自研齿条夹爪，scene_ros2_rg.xml "
+                            "+ controllers_rg.yaml）。切换时节点侧需同步 export "
+                            "TELEOP_GRIPPER=rg（authoritative_session.sh 已代劳）。",
             ),
             DeclareLaunchArgument(
                 "arm_control_mode",

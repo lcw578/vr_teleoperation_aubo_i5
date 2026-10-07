@@ -30,10 +30,16 @@ from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState, Joy
 
-MJCF_MODEL = "/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2.xml"
+# ---- 夹爪档（TELEOP_GRIPPER=ag95|rg）：EE 体名/抓取点/场景文件随夹爪切换 ----
+import os as _os
+import sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from gripper_profile import resolve as _resolve_gripper  # noqa: E402
+GRIP = _resolve_gripper()
+MJCF_MODEL = GRIP["mjcf"]
 GROUP = ["shoulder_joint", "upperArm_joint", "foreArm_joint",
          "wrist1_joint", "wrist2_joint", "wrist3_joint"]
-TIP_OFF = np.array([-0.0405, -0.0143, 0.1492])
+TIP_OFF = np.array(GRIP["tip_offset"])
 
 GESTURE_START_DEG = 8.0     # 手柄增量超过此角度视为动作开始
 HAND_SETTLE_DEG = 1.0       # 手柄静止判定窗内变化
@@ -89,7 +95,7 @@ _mj_model = mujoco.MjModel.from_xml_path(MJCF_MODEL)
 _mj_data = mujoco.MjData(_mj_model)
 _mj_qadr = [_mj_model.jnt_qposadr[mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_JOINT, j)]
             for j in GROUP]
-_mj_bid = mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_BODY, "ag95_base")
+_mj_bid = mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_BODY, GRIP["ee_body"])
 
 
 class RotCheck(Node):

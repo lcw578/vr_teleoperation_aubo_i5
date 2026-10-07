@@ -46,7 +46,13 @@ GROUP = ["shoulder_joint", "upperArm_joint", "foreArm_joint",
 # （P01 只走一半、P02 报碰撞降速）。新值与 assets/aubo_i5/scene_ros2.xml 的 ready 关键帧
 # **必须保持一致**，否则启动位姿与归位目标会打架。
 READY = [-1.137355, 0.041596, 1.593368, -1.589821, -1.137355, 1.570796]
-EE = "gripper_tip_link"
+# ---- 夹爪档（TELEOP_GRIPPER=ag95|rg）：URDF 侧抓取点 frame 随夹爪切换 ----
+import os as _os
+import sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from gripper_profile import resolve as _resolve_gripper  # noqa: E402
+GRIP = _resolve_gripper()
+EE = GRIP["tip_link"]
 WORLD = "world"
 # 速度模式归位用的比例系数与速度上限。上限取厂家 joint_limits.yaml 的 max_velocity。
 # ⚠️ 这是**测试工具**里的比例律（把位置误差换成速度命令），不是控制链路的一部分——

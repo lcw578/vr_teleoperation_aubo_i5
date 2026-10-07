@@ -42,16 +42,22 @@ KILL_MOCK_AT = 12.5          # 此时 clutch 仍按住（脚本 11.0 接合）�
 
 GROUP = ["shoulder_joint", "upperArm_joint", "foreArm_joint",
          "wrist1_joint", "wrist2_joint", "wrist3_joint"]
-TIP_OFF = np.array([-0.0405, -0.0143, 0.1492])
+# ---- 夹爪档（TELEOP_GRIPPER=ag95|rg）：EE 体名/抓取点/场景文件随夹爪切换 ----
+import os as _os
+import sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from gripper_profile import resolve as _resolve_gripper  # noqa: E402
+GRIP = _resolve_gripper()
+TIP_OFF = np.array(GRIP["tip_offset"])
 
 _mj_model = mujoco.MjModel.from_xml_path(
-    "/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2.xml")
+    GRIP["mjcf"])
 _mj_data = mujoco.MjData(_mj_model)
 _qadr = [_mj_model.jnt_qposadr[mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_JOINT, j)]
          for j in GROUP]
 _kadr = _mj_model.jnt_qposadr[mujoco.mj_name2id(
     _mj_model, mujoco.mjtObj.mjOBJ_JOINT, "left_outer_knuckle_joint")]
-_bid = mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_BODY, "ag95_base")
+_bid = mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_BODY, GRIP["ee_body"])
 
 # home（ready）末端位姿：验收前必须先归位——上一轮可能把臂留在任意位姿/贴限位
 # （2026-09-25 抓出：不归位就开始，工具一转就"关节到界"）

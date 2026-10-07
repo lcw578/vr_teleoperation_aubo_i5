@@ -10,6 +10,14 @@ export DISPLAY=:0
 PY=/home/lcw/tomato_robot/.venv/bin/python
 BFC=${BFC:-15.0}
 
+# ── 夹爪档（2026-10-05）：GRIPPER=rg 用自研齿条夹爪，默认 ag95 基线 ──
+# 四者必须一致，本脚本一次设齐：MJCF/controllers（launch 参数）、URDF/SRDF（同一参数
+# 传给两个 launch）、节点侧（环境变量 TELEOP_GRIPPER → tracker/mapper/fsm/viz 的
+# EE 体名与抓取点）。回滚：GRIPPER=ag95 或直接不设。
+GRIPPER=${GRIPPER:-ag95}
+export TELEOP_GRIPPER=$GRIPPER
+echo "夹爪档：$GRIPPER（TELEOP_GRIPPER=$TELEOP_GRIPPER）"
+
 echo "[1/5] 杀 stage3 链与输入节点（保留 stage2a/2b 若健康）..."
 for pat in "stage3_pose_trackin[g]" "servo_interfac[e]" "pose_tracking_nod[e]" \
            "clutch_mapper_nod[e]" "quest_adapter_nod[e]" "mock_vr_nod[e]" "gripper_fsm_nod[e]" \
@@ -26,14 +34,13 @@ if [ -z "$CLOCK_OK" ]; then
   done
   sleep 2
   setsid nohup ros2 launch aubo_i5_teleop stage2a_mujoco.launch.py arm_control_mode:=position \
-    mujoco_model:=/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2.xml \
-    headless:=true > /tmp/b2a.log 2>&1 &
+    gripper:=$GRIPPER headless:=true > /tmp/b2a.log 2>&1 &
   for _ in $(seq 1 90); do
     ros2 control list_controllers 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' \
       | awk '{print $1, $NF}' | grep -qx "forward_command_controller_position active" && break
     sleep 1
   done
-  setsid nohup ros2 launch aubo_i5_teleop stage2b_moveit.launch.py > /tmp/b2b.log 2>&1 &
+  setsid nohup ros2 launch aubo_i5_teleop stage2b_moveit.launch.py gripper:=$GRIPPER > /tmp/b2b.log 2>&1 &
   for _ in $(seq 1 90); do ros2 node list 2>/dev/null | grep -q "/move_group" && break; sleep 1; done
 fi
 echo "  /clock: $(timeout 6 ros2 topic hz /clock 2>/dev/null | grep -m1 average | awk '{print $3}') Hz"

@@ -42,10 +42,16 @@ try:
 except ModuleNotFoundError as _e:      # pragma: no cover
     raise SystemExit("需要 mujoco（FK/Jacobian）：%s\n用 venv 解释器跑" % _e)
 
-MJCF = "/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2.xml"
+# ---- 夹爪档（TELEOP_GRIPPER=ag95|rg）：EE 体名/抓取点/场景文件随夹爪切换 ----
+import os as _os
+import sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from gripper_profile import resolve as _resolve_gripper  # noqa: E402
+GRIP = _resolve_gripper()
+MJCF = GRIP["mjcf"]
 GROUP = ["shoulder_joint", "upperArm_joint", "foreArm_joint",
          "wrist1_joint", "wrist2_joint", "wrist3_joint"]
-TIP_OFF = np.array([-0.0405, -0.0143, 0.1492])
+TIP_OFF = np.array(GRIP["tip_offset"])
 CMD_TOPIC = "/forward_command_controller_position/commands"
 TARGET_TOPIC = "/target_pose"
 
@@ -70,7 +76,7 @@ _qadr = [_mj_model.jnt_qposadr[mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_
          for j in GROUP]
 _dofs = [_mj_model.jnt_dofadr[mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_JOINT, j)]
          for j in GROUP]
-_bid = mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_BODY, "ag95_base")
+_bid = mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_BODY, GRIP["ee_body"])
 
 
 def fast_qos():

@@ -26,10 +26,16 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
 from tf2_ros import TransformBroadcaster
 
-MJCF_MODEL = "/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2.xml"
+# ---- 夹爪档（TELEOP_GRIPPER=ag95|rg）：EE 体名/抓取点/场景文件随夹爪切换 ----
+import os as _os
+import sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from gripper_profile import resolve as _resolve_gripper  # noqa: E402
+GRIP = _resolve_gripper()
+MJCF_MODEL = GRIP["mjcf"]
 GROUP = ["shoulder_joint", "upperArm_joint", "foreArm_joint",
          "wrist1_joint", "wrist2_joint", "wrist3_joint"]
-TIP_OFF = np.array([-0.0405, -0.0143, 0.1492])
+TIP_OFF = np.array(GRIP["tip_offset"])
 MIRROR_OFFSET = np.array([-0.18, 0.0, 0.10])   # 夹爪旁：操作者视角（屏幕右=-x）的右上方
 ARROW_LEN = 0.16                               # 三轴箭头长度（m）
 LIFETIME_S = 0.5                               # 标记自清理（节点死亡后不残留）
@@ -44,7 +50,7 @@ _mj_model = mujoco.MjModel.from_xml_path(MJCF_MODEL)
 _mj_data = mujoco.MjData(_mj_model)
 _mj_qadr = [_mj_model.jnt_qposadr[mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_JOINT, j)]
             for j in GROUP]
-_mj_bid = mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_BODY, "ag95_base")
+_mj_bid = mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_BODY, GRIP["ee_body"])
 
 
 class ControllerViz(Node):

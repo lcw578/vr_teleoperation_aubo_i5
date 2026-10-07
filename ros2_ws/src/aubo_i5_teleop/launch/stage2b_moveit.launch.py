@@ -48,7 +48,11 @@ def load_yaml_abs(path):
 
 def launch_setup(context, *args, **kwargs):
     teleop_share = get_package_share_directory("aubo_i5_teleop")
+    # 夹爪档（2026-10-05）：rg 档默认换成 teleop_rg.srdf（EE=rg_tip_link、rg 排除对）
+    gripper = LaunchConfiguration("gripper").perform(context).lower()
     srdf_file = LaunchConfiguration("srdf_file").perform(context)
+    if gripper == "rg" and srdf_file == "teleop.srdf":
+        srdf_file = "teleop_rg.srdf"
 
     robot_description_content = Command(
         [
@@ -61,6 +65,9 @@ def launch_setup(context, *args, **kwargs):
                     "aubo_i5_teleop.urdf.xacro",
                 ]
             ),
+            " ",
+            "gripper:=",
+            gripper,
         ]
     )
     robot_description = {
@@ -185,6 +192,12 @@ def launch_setup(context, *args, **kwargs):
 def generate_launch_description():
     return LaunchDescription(
         [
+            DeclareLaunchArgument(
+                "gripper",
+                default_value="ag95",
+                choices=["ag95", "rg"],
+                description="夹爪档：ag95（基线）/ rg（自研齿条夹爪，自动选 teleop_rg.srdf）",
+            ),
             DeclareLaunchArgument(
                 "srdf_file",
                 default_value="teleop.srdf",

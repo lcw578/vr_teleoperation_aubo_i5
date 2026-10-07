@@ -82,28 +82,55 @@
   <xacro:arg name="camera_mount_xyz"  default="0.05 0 0.02"/>
   <xacro:arg name="camera_mount_rpy"  default="0 0 0"/>
 
+  <!-- ============ 夹爪档（2026-10-05）============
+       ag95 = 基线（AG95 两指夹爪"代用件"）；rg = 自研齿条夹爪（整机模型提取，
+       论文 Xu et al. JFR 2026）。由 stage2a/stage2b 的 gripper:=ag95|rg 选择，
+       与 MJCF 侧（scene_ros2.xml / scene_ros2_rg.xml）、控制器（controllers*.yaml）、
+       节点侧（环境变量 TELEOP_GRIPPER）必须**四者一致**。 -->
+  <xacro:arg name="gripper" default="ag95"/>
+
+  <xacro:unless value="${'$(arg gripper)' == 'rg'}">
   <xacro:include filename="$(find dh_ag95_description)/urdf/ag95_macro.xacro"/>
   <xacro:dh_ag95_gripper prefix="" parent="ee_link">
     <origin xyz="$(arg gripper_mount_xyz)" rpy="$(arg gripper_mount_rpy)"/>
   </xacro:dh_ag95_gripper>
+  </xacro:unless>
+
+  <xacro:if value="${'$(arg gripper)' == 'rg'}">
+  <xacro:include filename="$(find aubo_i5_teleop)/urdf/rg_gripper.urdf.xacro"/>
+  <xacro:rg_gripper parent="ee_link"/>
+  </xacro:if>
 
   <!-- 夹持点：两指中间。数值 = AG95 指尖在其自身坐标系的 Z 位置（0.1345 m）；
        挂载为恒等旋转，所以就是相对 ag95_body 的纯 Z 偏移。-->
+  <xacro:unless value="${'$(arg gripper)' == 'rg'}">
   <link name="gripper_tip_link"/>
   <joint name="gripper_tip_joint" type="fixed">
     <parent link="ag95_body"/>
     <child link="gripper_tip_link"/>
     <origin xyz="0 0 0.1345" rpy="0 0 0"/>
   </joint>
+  </xacro:unless>
 
   <!-- 腕部相机安装位（占位，待实测）。挂在夹爪本体上，
-       因为腕部法兰通常已被夹爪占用，且这样视角更贴近夹爪工作区。-->
+       因为腕部法兰通常已被夹爪占用，且这样视角更贴近夹爪工作区。
+       rg 档：挂 rg_base（rg 的抓取点 link 由 rg_gripper 宏内部定义）。 -->
+  <xacro:unless value="${'$(arg gripper)' == 'rg'}">
   <link name="camera_mount_link"/>
   <joint name="camera_mount_joint" type="fixed">
     <parent link="ag95_body"/>
     <child link="camera_mount_link"/>
     <origin xyz="$(arg camera_mount_xyz)" rpy="$(arg camera_mount_rpy)"/>
   </joint>
+  </xacro:unless>
+  <xacro:if value="${'$(arg gripper)' == 'rg'}">
+  <link name="camera_mount_link"/>
+  <joint name="camera_mount_joint" type="fixed">
+    <parent link="rg_base"/>
+    <child link="camera_mount_link"/>
+    <origin xyz="$(arg camera_mount_xyz)" rpy="$(arg camera_mount_rpy)"/>
+  </joint>
+  </xacro:if>
 
   <!-- ============ ros2_control：MuJoCo 后端 ============
        mujoco_ros2_control 把 ros2_control 的关节映射到 MJCF 里的 actuator。
@@ -169,10 +196,12 @@
     <xacro:aubo_joint_iface joint_name="wrist3_joint"/>
 
     <!-- 夹爪：只暴露一个关节。
-         AG95 是四连杆闭链，8 个 revolute 关节实际只有 1 个自由度，靠 tendon + equality 耦合。
-         mujoco_ros2_control 要求 tendon 执行器的名字与某个真实关节同名，
-         所以把 left_outer_knuckle_joint 当作对外的那一个（它的角 = 开合角）。
-         其余手指关节由仿真内部的 equality 约束联动，不暴露给 ros2_control。 -->
+         AG95 档：四连杆闭链，8 个 revolute 关节实际只有 1 个自由度，靠 tendon + equality 耦合；
+                   mujoco_ros2_control 要求 tendon 执行器名与某真实关节同名，所以用
+                   left_outer_knuckle_joint 当对外那一个。
+         rg 档：rg_gear_joint 直接驱动（齿轮），两指由 URDF <mimic> / MJCF equality 耦合。
+         关节名必须与 controllers.yaml / controllers_rg.yaml 里的 gripper_controller 一致。 -->
+    <xacro:unless value="${'$(arg gripper)' == 'rg'}">
     <joint name="left_outer_knuckle_joint">
       <command_interface name="position">
         <param name="min">0.0</param>
@@ -184,6 +213,28 @@
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
+    </xacro:unless>
+    <xacro:if value="${'$(arg gripper)' == 'rg'}">
+    <joint name="rg_gear_joint">
+      <command_interface name="position">
+        <param name="min">-0.474409</param>
+        <param name="max">0.463234</param>
+      </command_interface>
+      <state_interface name="position">
+        <param name="initial_value">-0.474409</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="rg_right_finger_joint">
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="rg_left_finger_joint">
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+    </xacro:if>
   </ros2_control>
 
 </robot>
