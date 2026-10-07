@@ -229,7 +229,14 @@ def main():
         order.append((nm, int(m.jnt_qposadr[jid]), int(m.jnt_type[jid])))
     print("   关节顺序(qpos)：", ", ".join("%s@%d" % (n, a) for n, a, _ in order))
 
-    Q_REST = [-1.137355, 0.041596, 1.593368, -1.589821, -1.137355, 1.570796]
+    # ready 位姿从 gripper_profile 取（单一事实来源）——与 tracker 的 Q_REST、
+    # go_ready 的 READY 同源，杜绝"三处各写一份、改一处忘两处"。
+    _sys_path = "/home/lcw/VR_teleoperation/ros2_ws/src/aubo_i5_teleop/scripts"
+    if _sys_path not in sys.path:
+        sys.path.insert(0, _sys_path)
+    from gripper_profile import resolve as _resolve_gripper
+    Q_REST = list(_resolve_gripper("rg")["q_rest"])
+    print("   ready（rg 档）=%s" % [round(v, 4) for v in Q_REST])
     qpos = np.zeros(m.nq)
     qpos[:6] = Q_REST
     for nm, adr, _ in order:

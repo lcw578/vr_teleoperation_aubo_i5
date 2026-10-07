@@ -56,7 +56,7 @@ CMD_TOPIC = "/forward_command_controller_position/commands"
 TARGET_TOPIC = "/target_pose"
 
 # ready=Q1 水平前伸（2026-09-29 IK 反解二次定案，与 MJCF keyframe/go_ready 同源）：
-Q_REST = np.array([-1.137355, 0.041596, 1.593368, -1.589821, -1.137355, 1.570796])
+Q_REST = np.array(GRIP["q_rest"])   # ready 位姿随夹爪档（见 gripper_profile.py）
 MU_REST = 0.02              # Tikhonov 刚度（拉向 q_rest，破肘部翻转歧义；上游 mu=0.02）
 ROT_ERR_HOLD = 2.2          # 反极点 park 门限（rad，>126° 停腕；上游 rot_err_hold=2.2）
 JOINT_LIMIT = 3.04

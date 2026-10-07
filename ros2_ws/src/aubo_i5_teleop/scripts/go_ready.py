@@ -45,13 +45,16 @@ GROUP = ["shoulder_joint", "upperArm_joint", "foreArm_joint",
 # 处在侧前方的伸直角；而任务区在正前方 700–944 mm。实测从旧 home **走不进任务区**
 # （P01 只走一半、P02 报碰撞降速）。新值与 assets/aubo_i5/scene_ros2.xml 的 ready 关键帧
 # **必须保持一致**，否则启动位姿与归位目标会打架。
-READY = [-1.137355, 0.041596, 1.593368, -1.589821, -1.137355, 1.570796]
 # ---- 夹爪档（TELEOP_GRIPPER=ag95|rg）：URDF 侧抓取点 frame 随夹爪切换 ----
 import os as _os
 import sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
 from gripper_profile import resolve as _resolve_gripper  # noqa: E402
 GRIP = _resolve_gripper()
+# ready 位姿随夹爪档（见 gripper_profile.py）：AG95 档 = Q1（夹爪水平指前，冻结）；
+# rg 档 = 同构型但腕3=2.94（腕部相机转到抓取点正上方 104 mm，用户 2026-10-07 选定）。
+# ⚠️ 必须与该档场景文件的 <key name="ready"> 一致，否则启动位姿与归位目标打架。
+READY = list(GRIP["q_rest"])
 EE = GRIP["tip_link"]
 WORLD = "world"
 # 速度模式归位用的比例系数与速度上限。上限取厂家 joint_limits.yaml 的 max_velocity。
