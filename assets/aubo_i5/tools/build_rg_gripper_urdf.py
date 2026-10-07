@@ -52,6 +52,12 @@ def q_to_rpy(q_wxyz):
     return R.from_quat([x, y, z, w]).as_euler("xyz")
 
 
+def _rot(q_wxyz):
+    """[w,x,y,z] → 3×3 旋转矩阵。"""
+    w, x, y, z = q_wxyz
+    return R.from_quat([x, y, z, w]).as_matrix()
+
+
 def fmt(v):
     return " ".join("%.9g" % float(x) for x in v)
 
@@ -129,8 +135,17 @@ def main():
             if meshname.startswith("c_part"):
                 fn += "_baked"
             scale = "1 1 1" if meshname.startswith("c_part") else "0.001 0.001 0.001"
+            # ⚠️ 2026-10-07 修正：**不能**直接用编译后的 geom_pos/geom_quat。
+            # MuJoCo 装载网格时把顶点重定心/重定向，偏移存在 mesh_pos/mesh_quat 里；
+            # URDF 没有这个概念，必须把补偿反解出来（46 个零件错位 39–164 mm，
+            # 中位 76 mm —— 首版就是这里错的，RViz 里零件散架）。
+            #   R_vis = R_geom · R_meshᵀ
+            #   t_vis = geom_pos − R_vis · mesh_pos
+            # 已核对：t_vis 与源模型授权的 XML pos 逐条吻合到 1e-15 m。
+            R_vis = _rot(m.geom_quat[g]) @ _rot(m.mesh_quat[meshid]).T
+            t_vis = m.geom_pos[g] - R_vis @ m.mesh_pos[meshid]
             origin = ('        <origin xyz="%s" rpy="%s"/>'
-                      % (fmt(m.geom_pos[g]), fmt(q_to_rpy(m.geom_quat[g]))))
+                      % (fmt(t_vis), fmt(R.from_matrix(R_vis).as_euler("xyz"))))
             geom = ('        <geometry><mesh filename="file://%s/meshes_rg_gripper/%s.stl" '
                     'scale="%s"/></geometry>' % (ASSETS, fn, scale))
             for tag in ("visual", "collision"):
@@ -158,7 +173,65 @@ def main():
     print("   安装：xyz=%s rpy=%s（在 ee_link 系）" % (MOUNT_XYZ, MOUNT_RPY))
     nv = sum(1 for _ in L if "<visual>" in _)
     print("   visual 条目 %d，link 4 + tip 1，joint 3（含 2 个 mimic）" % nv)
+
+    # ---------- 自检：解析生成物，与 MuJoCo 自己的顶点云比对（最近邻，单位 m）----------
+    ok, worst = verify_against_mjcf(m, OUT)
+    print("   自检：%d 条 visual 全部与 MuJoCo 顶点云比对，最大偏差 = %.2e m  %s"
+          % (ok, worst, "✓" if worst < 1e-6 else "✗ 不通过"))
+    if worst >= 1e-6:
+        raise SystemExit("URDF 与 MJCF 几何不一致，拒绝产出")
     return 0
+
+
+def _stl_verts(path):
+    """读二进制 STL 的三角顶点（未缩放）。"""
+    import struct
+    with open(path, "rb") as f:
+        f.read(80)
+        n = struct.unpack("<I", f.read(4))[0]
+        d = np.frombuffer(f.read(n * 50), dtype=np.uint8).reshape(n, 50)
+    return d[:, 12:48].copy().view("<f4").reshape(-1, 3).astype(float)
+
+
+def verify_against_mjcf(m, xacro_path):
+    """把生成的 URDF 视觉原点隐含的顶点世界位置，与 MuJoCo 的世界顶点云做最近邻比对。
+
+    对齐方式：**按 body 内 geom 的先后顺序逐条对齐**（生成器就是按该顺序写的 visual），
+    避免按文件名匹配的歧义。判据：每个 MuJoCo 顶点到最近 URDF 顶点的距离 < 1e-6 m。
+    """
+    from scipy.spatial import cKDTree
+    import xml.etree.ElementTree as ET
+    root = ET.parse(xacro_path).getroot()
+    d = mujoco.MjData(m)
+    mujoco.mj_forward(m, d)
+    worst, n_chk = 0.0, 0
+    for link in root.iter("link"):
+        b = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, link.get("name") or "")
+        if b < 0:
+            continue
+        geoms = [g for g in range(m.body_geomadr[b], m.body_geomadr[b] + m.body_geomnum[b])
+                 if m.geom_dataid[g] >= 0]
+        visuals = link.findall("visual")
+        assert len(geoms) == len(visuals), "%s: geom %d vs visual %d" % (
+            link.get("name"), len(geoms), len(visuals))
+        Rb, tb = d.xmat[b].reshape(3, 3), d.xpos[b]
+        for g, vis in zip(geoms, visuals):
+            o = vis.find("origin")
+            xyz = np.array([float(x) for x in (o.get("xyz") or "0 0 0").split()])
+            rpy = np.array([float(x) for x in (o.get("rpy") or "0 0 0").split()])
+            Rv = R.from_euler("xyz", rpy).as_matrix()
+            mesh = vis.find("geometry/mesh")
+            fn = mesh.get("filename").replace("file://", "")
+            sc = np.array([float(x) for x in (mesh.get("scale") or "1 1 1").split()])
+            v_raw = _stl_verts(fn) * sc
+            urdf_world = tb + (xyz + v_raw @ Rv.T) @ Rb.T
+            mid = m.geom_dataid[g]
+            va, vn = m.mesh_vertadr[mid], m.mesh_vertnum[mid]
+            mj_world = d.geom_xpos[g] + m.mesh_vert[va:va + vn] @ d.geom_xmat[g].reshape(3, 3).T
+            dist, _ = cKDTree(urdf_world).query(mj_world)
+            worst = max(worst, float(dist.max()))
+            n_chk += 1
+    return n_chk, worst
 
 
 if __name__ == "__main__":

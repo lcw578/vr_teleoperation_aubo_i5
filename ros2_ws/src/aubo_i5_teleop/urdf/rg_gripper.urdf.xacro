@@ -20,299 +20,299 @@
         <inertia ixx="0.000647941236" ixy="0" ixz="0" iyy="0.000628088339" iyz="0" izz="0.000322583426"/>
       </inertial>
       <visual>
-          <origin xyz="2.31474439e-09 7.49923922e-10 -0.0426373485" rpy="1.57079633 -1.57079633 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_003_solid_003.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="2.31474439e-09 7.49923922e-10 -0.0426373485" rpy="1.57079633 -1.57079633 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_003_solid_003.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="-0.0356851889 0.00245333454 -0.0224968998" rpy="1.46025395 -0.042083217 -0.0154781049"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_010_solid_010.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-0.0356851889 0.00245333454 -0.0224968998" rpy="1.46025395 -0.042083217 -0.0154781049"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_010_solid_010.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="0.0196492212 -0.0117386945 0.0267636204" rpy="-1.64212704 -1.42287856 2.59336039"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_011_solid_011.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="0.0196492212 -0.0117386945 0.0267636204" rpy="-1.64212704 -1.42287856 2.59336039"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_011_solid_011.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="-0.0196492169 0.0117386934 0.0267636203" rpy="1.49946586 -1.42287845 -0.548232435"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_012_solid_012.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-0.0196492169 0.0117386934 0.0267636203" rpy="1.49946586 -1.42287845 -0.548232435"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_012_solid_012.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="0.0113555795 0.0198514961 0.0265661099" rpy="1.57079633 0.0383131485 1.05120115"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_013_solid_013.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="0.0113555795 0.0198514961 0.0265661099" rpy="1.57079633 0.0383131485 1.05120115"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_013_solid_013.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="0.0168232628 0.0151247754 0.0251892442" rpy="1.05459878 -1.57079633 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_027_solid_027.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="0.0168232628 0.0151247754 0.0251892442" rpy="1.05459878 -1.57079633 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_027_solid_027.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="0.000526223661 0.000972424741 0.0235500002" rpy="2.63661798 -1.57079633 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_028_solid_028.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="0.000526223661 0.000972424741 0.0235500002" rpy="2.63661798 -1.57079633 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_028_solid_028.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="-7.08562797e-05 -4.45546562e-05 0.00292399032" rpy="-6.08180173e-13 -1.57055738 2.88853114"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_029_solid_029.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-7.08562797e-05 -4.45546562e-05 0.00292399032" rpy="-6.08180173e-13 -1.57055738 2.88853114"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_029_solid_029.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="-0.000100920802 -0.000177115681 0.00302660312" rpy="-2.72925567 -1.55531854 -2.10712782"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_030_solid_030.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-0.000100920802 -0.000177115681 0.00302660312" rpy="-2.72925567 -1.55531854 -2.10712782"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_030_solid_030.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="-5.11437102e-08 3.78272079e-07 -0.014406301" rpy="2.92235116 -1.57078807 -1.61074902"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_031_solid_031.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-5.11437102e-08 3.78272079e-07 -0.014406301" rpy="2.92235116 -1.57078807 -1.61074902"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_031_solid_031.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="-2.1001639e-05 -4.15016053e-05 0.0136316687" rpy="-0.236884739 -1.57014569 1.31416878"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_032_solid_032.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-2.1001639e-05 -4.15016053e-05 0.0136316687" rpy="-0.236884739 -1.57014569 1.31416878"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_032_solid_032.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="-0.0148922459 -0.0179783443 0.0217999992" rpy="1.57079633 -1.57079633 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_033_solid_033.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-0.0148922459 -0.0179783443 0.0217999992" rpy="1.57079633 -1.57079633 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_033_solid_033.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="-0.00794808556 -0.0219505758 0.0217999992" rpy="1.57079633 -1.57079633 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_034_solid_034.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-0.00794808556 -0.0219505758 0.0217999992" rpy="1.57079633 -1.57079633 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_034_solid_034.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="-0.00794808537 -0.021950576 0.0220322798" rpy="0 0 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_035_solid_035.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-0.00794808537 -0.021950576 0.0220322798" rpy="0 0 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_035_solid_035.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="-0.0148922461 -0.0179783441 0.0220322796" rpy="0 0 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_036_solid_036.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-0.0148922461 -0.0179783441 0.0220322796" rpy="0 0 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_036_solid_036.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="0.00499099541 -0.0183327543 0.0235344596" rpy="0 0 1.57079633"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_037_solid_037.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="0.00499099541 -0.0183327543 0.0235344596" rpy="0 0 1.57079633"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_037_solid_037.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="0.0183327562 0.00499099304 0.0235344595" rpy="0 0 2.04814826"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_038_solid_038.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="0.0183327562 0.00499099304 0.0235344595" rpy="0 0 2.04814826"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_038_solid_038.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="-0.00499099131 0.0183327545 0.0235344597" rpy="0 0 1.57079633"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_039_solid_039.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-0.00499099131 0.0183327545 0.0235344597" rpy="0 0 1.57079633"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_039_solid_039.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="-0.0183327514 -0.00499099316 0.023534459" rpy="0 0 0.791721268"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_040_solid_040.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-0.0183327514 -0.00499099316 0.023534459" rpy="0 0 0.791721268"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_040_solid_040.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="-0.000200940487 -0.000370717641 0.0292264656" rpy="2.95931413 -1.56585272 -2.01119667"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_041_solid_041.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-0.000200940487 -0.000370717641 0.0292264656" rpy="2.95931413 -1.56585272 -2.01119667"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_041_solid_041.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="0.016821586 0.0151245582 0.028497085" rpy="0 0 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_042_solid_042.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="0.016821586 0.0151245582 0.028497085" rpy="0 0 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_042_solid_042.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="-0.0246044881 -0.0066984371 0.026809768" rpy="0 0 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_043_solid_043.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-0.0246044881 -0.0066984371 0.026809768" rpy="0 0 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_043_solid_043.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="0.0246044911 0.00669844179 0.0268097683" rpy="0 0 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_045_solid_045.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="0.0246044911 0.00669844179 0.0268097683" rpy="0 0 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_045_solid_045.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="0.00669844063 -0.0246044866 0.0268097683" rpy="0 0 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_044_solid_044.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="0.00669844063 -0.0246044866 0.0268097683" rpy="0 0 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_044_solid_044.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="-0.00669843801 0.0246044924 0.0268097689" rpy="0 0 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_046_solid_046.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-0.00669843801 0.0246044924 0.0268097689" rpy="0 0 0"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_046_solid_046.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="-0.0127140873 -0.0222264626 0.0131397153" rpy="0 0.106162891 1.05120085"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_047_solid_047.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-0.0127140873 -0.0222264626 0.0131397153" rpy="0 0.106162891 1.05120085"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_047_solid_047.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="-0.00266341776 3.14568265e-07 0.000705658756" rpy="1.57071606 -0.163953217 -2.51883806e-05"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_001_solid_001.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-0.00266341776 3.14568265e-07 0.000705658756" rpy="1.57071606 -0.163953217 -2.51883806e-05"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_001_solid_001.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="0.0356851888 -0.0024533334 -0.0224969" rpy="1.6813387 0.042083222 -0.0154781014"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_009_solid_009.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="0.0356851888 -0.0024533334 -0.0224969" rpy="1.6813387 0.042083222 -0.0154781014"/>
+          <origin xyz="0.044658438 -0.040628404 0.036834671" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_009_solid_009.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="0.116339052 -0.00143004276 0.0410564096" rpy="1.19198074 -1.5236647 2.00176588"/>
+          <origin xyz="0 1.08420217e-18 6.9388939e-18" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_363_baked.stl" scale="1 1 1"/></geometry>
       </visual>
       <collision>
-          <origin xyz="0.116339052 -0.00143004276 0.0410564096" rpy="1.19198074 -1.5236647 2.00176588"/>
+          <origin xyz="0 1.08420217e-18 6.9388939e-18" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_363_baked.stl" scale="1 1 1"/></geometry>
       </collision>
       <visual>
-          <origin xyz="0.115797031 -0.00173873948 0.0261779271" rpy="1.46825857 -1.52565403 1.69043458"/>
+          <origin xyz="-2.77555756e-17 -2.16840434e-19 -1.38777878e-17" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_364_baked.stl" scale="1 1 1"/></geometry>
       </visual>
       <collision>
-          <origin xyz="0.115797031 -0.00173873948 0.0261779271" rpy="1.46825857 -1.52565403 1.69043458"/>
+          <origin xyz="-2.77555756e-17 -2.16840434e-19 -1.38777878e-17" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_364_baked.stl" scale="1 1 1"/></geometry>
       </collision>
       <visual>
-          <origin xyz="0.114291553 -0.0013987398 0.044372838" rpy="-0.0450123379 -1.52597007 1.62549559"/>
+          <origin xyz="-2.77555756e-17 -3.46944695e-18 -6.9388939e-18" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_365_baked.stl" scale="1 1 1"/></geometry>
       </visual>
       <collision>
-          <origin xyz="0.114291553 -0.0013987398 0.044372838" rpy="-0.0450123379 -1.52597007 1.62549559"/>
+          <origin xyz="-2.77555756e-17 -3.46944695e-18 -6.9388939e-18" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_365_baked.stl" scale="1 1 1"/></geometry>
       </collision>
       <visual>
-          <origin xyz="0.110738202 -0.0158495071 0.0409773091" rpy="0 0 0"/>
+          <origin xyz="0 0 0" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_366_baked.stl" scale="1 1 1"/></geometry>
       </visual>
       <collision>
-          <origin xyz="0.110738202 -0.0158495071 0.0409773091" rpy="0 0 0"/>
+          <origin xyz="0 0 0" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_366_baked.stl" scale="1 1 1"/></geometry>
       </collision>
       <visual>
-          <origin xyz="0.110736357 -0.0158159463 0.0417265546" rpy="0 0 0"/>
+          <origin xyz="0 0 0" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_367_baked.stl" scale="1 1 1"/></geometry>
       </visual>
       <collision>
-          <origin xyz="0.110736357 -0.0158159463 0.0417265546" rpy="0 0 0"/>
+          <origin xyz="0 0 0" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_367_baked.stl" scale="1 1 1"/></geometry>
       </collision>
       <visual>
-          <origin xyz="0.103129353 -0.0102676334 0.0407086379" rpy="0 0 0"/>
+          <origin xyz="0 0 0" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_368_baked.stl" scale="1 1 1"/></geometry>
       </visual>
       <collision>
-          <origin xyz="0.103129353 -0.0102676334 0.0407086379" rpy="0 0 0"/>
+          <origin xyz="0 0 0" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_368_baked.stl" scale="1 1 1"/></geometry>
       </collision>
       <visual>
-          <origin xyz="0.103712235 0.0160765054 0.041604348" rpy="1.71351223 -1.40757691 2.04811798"/>
+          <origin xyz="0 -3.46944695e-18 0" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_369_baked.stl" scale="1 1 1"/></geometry>
       </visual>
       <collision>
-          <origin xyz="0.103712235 0.0160765054 0.041604348" rpy="1.71351223 -1.40757691 2.04811798"/>
+          <origin xyz="0 -3.46944695e-18 0" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_369_baked.stl" scale="1 1 1"/></geometry>
       </collision>
       <visual>
-          <origin xyz="0.0146748059 -0.00106074209 0.0471273994" rpy="-2.88976847 -1.53360588 -0.254571304"/>
+          <origin xyz="1.38777878e-17 -6.50521303e-19 2.77555756e-17" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_362_baked.stl" scale="1 1 1"/></geometry>
       </visual>
       <collision>
-          <origin xyz="0.0146748059 -0.00106074209 0.0471273994" rpy="-2.88976847 -1.53360588 -0.254571304"/>
+          <origin xyz="1.38777878e-17 -6.50521303e-19 2.77555756e-17" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_362_baked.stl" scale="1 1 1"/></geometry>
       </collision>
       <visual>
-          <origin xyz="0.000117532405 -0.000954808892 0.040274182" rpy="-2.59648852 -1.55996052 -2.11883465"/>
+          <origin xyz="2.41234983e-18 -3.7947076e-18 -2.08166817e-17" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_371_baked.stl" scale="1 1 1"/></geometry>
       </visual>
       <collision>
-          <origin xyz="0.000117532405 -0.000954808892 0.040274182" rpy="-2.59648852 -1.55996052 -2.11883465"/>
+          <origin xyz="2.41234983e-18 -3.7947076e-18 -2.08166817e-17" rpy="0 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_371_baked.stl" scale="1 1 1"/></geometry>
       </collision>
     </link>
@@ -332,11 +332,11 @@
         <inertia ixx="2.8015663e-06" ixy="0" ixz="0" iyy="2.7182082e-06" iyz="0" izz="4.5617203e-06"/>
       </inertial>
       <visual>
-          <origin xyz="-7.18978136e-07 2.71891633e-05 0.0274451849" rpy="-1.57080638 1.57067301 -1.54409591"/>
+          <origin xyz="0.044658436 0.040628406 -0.041584672" rpy="3.14159261 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_050_solid_050.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-7.18978136e-07 2.71891633e-05 0.0274451849" rpy="-1.57080638 1.57067301 -1.54409591"/>
+          <origin xyz="0.044658436 0.040628406 -0.041584672" rpy="3.14159261 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_050_solid_050.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
     </link>
@@ -358,27 +358,27 @@
         <inertia ixx="2.2182048e-05" ixy="0" ixz="0" iyy="5.4852153e-06" iyz="0" izz="1.981857e-05"/>
       </inertial>
       <visual>
-          <origin xyz="-0.00251020661 -0.0024130153 -0.00676209457" rpy="-0.000433856857 -0.0215421818 1.57066989"/>
+          <origin xyz="0.042158436 0.078497829 0.010192365" rpy="-1.5492542 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_004_solid_004.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-0.00251020661 -0.0024130153 -0.00676209457" rpy="-0.000433856857 -0.0215421818 1.57066989"/>
+          <origin xyz="0.042158436 0.078497829 0.010192365" rpy="-1.5492542 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_004_solid_004.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="-0.013596346 -0.0213630527 -0.0180933352" rpy="-1.66955058 0.19916456 0.286906996"/>
+          <origin xyz="0.042158436 0.078497829 0.010192365" rpy="-1.5492542 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_048_solid_048.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-0.013596346 -0.0213630527 -0.0180933352" rpy="-1.66955058 0.19916456 0.286906996"/>
+          <origin xyz="0.042158436 0.078497829 0.010192365" rpy="-1.5492542 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_048_solid_048.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="-0.00172474242 -0.0688112271 -0.0187367382" rpy="-1.63807794 0 0"/>
+          <origin xyz="0.042158436 0.078497829 0.010192365" rpy="-1.5492542 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_007_solid_007.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-0.00172474242 -0.0688112271 -0.0187367382" rpy="-1.63807794 0 0"/>
+          <origin xyz="0.042158436 0.078497829 0.010192365" rpy="-1.5492542 0 0"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_007_solid_007.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
     </link>
@@ -400,43 +400,43 @@
         <inertia ixx="2.5231822e-05" ixy="0" ixz="0" iyy="6.8915999e-06" iyz="0" izz="2.2743687e-05"/>
       </inertial>
       <visual>
-          <origin xyz="0.00720447505 0.0219954623 -0.00930270121" rpy="1.69486998 -0.287638047 0.248942487"/>
+          <origin xyz="0.042380645 -0.079623834 -0.06351737" rpy="1.5710562 0.000274718709 4.15745216e-12"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_049_solid_049.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="0.00720447505 0.0219954623 -0.00930270121" rpy="1.69486998 -0.287638047 0.248942487"/>
+          <origin xyz="0.042380645 -0.079623834 -0.06351737" rpy="1.5710562 0.000274718709 4.15745216e-12"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_049_solid_049.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="-0.0022645714 0.0289483373 -0.0153911359" rpy="2.32843184 -1.57041817 -0.757635547"/>
+          <origin xyz="0.042380645 -0.079623834 -0.06351737" rpy="1.5710562 0.000274718709 4.1576742e-12"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_008_solid_008.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-0.0022645714 0.0289483373 -0.0153911359" rpy="2.32843184 -1.57041817 -0.757635547"/>
+          <origin xyz="0.042380645 -0.079623834 -0.06351737" rpy="1.5710562 0.000274718709 4.1576742e-12"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_008_solid_008.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="-0.00716445516 0.0289482277 -0.0149681297" rpy="1.5710562 0.000274718709 4.15745216e-12"/>
+          <origin xyz="0.042380645 -0.079623834 -0.06351737" rpy="1.5710562 0.000274718709 4.15745216e-12"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_005_solid_005.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-0.00716445516 0.0289482277 -0.0149681297" rpy="1.5710562 0.000274718709 4.15745216e-12"/>
+          <origin xyz="0.042380645 -0.079623834 -0.06351737" rpy="1.5710562 0.000274718709 4.15745216e-12"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_005_solid_005.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="-0.00151252994 0.0678086577 -0.00795946685" rpy="1.65987977 0.000274718709 4.15756318e-12"/>
+          <origin xyz="0.042380645 -0.079623834 -0.06351737" rpy="1.5710562 0.000274718709 4.15745216e-12"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_006_solid_006.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-0.00151252994 0.0678086577 -0.00795946685" rpy="1.65987977 0.000274718709 4.15756318e-12"/>
+          <origin xyz="0.042380645 -0.079623834 -0.06351737" rpy="1.5710562 0.000274718709 4.15745216e-12"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_006_solid_006.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
       <visual>
-          <origin xyz="-0.00226984436 0.00161627602 0.00256815279" rpy="3.14088139 0.000259963119 -1.57066999"/>
+          <origin xyz="0.042380645 -0.079623834 -0.06351737" rpy="1.5710562 0.000274718709 4.15756318e-12"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_002_solid_002.stl" scale="0.001 0.001 0.001"/></geometry>
       </visual>
       <collision>
-          <origin xyz="-0.00226984436 0.00161627602 0.00256815279" rpy="3.14088139 0.000259963119 -1.57066999"/>
+          <origin xyz="0.042380645 -0.079623834 -0.06351737" rpy="1.5710562 0.000274718709 4.15756318e-12"/>
           <geometry><mesh filename="file:///home/lcw/VR_teleoperation/assets/aubo_i5/meshes_rg_gripper/part_002_solid_002.stl" scale="0.001 0.001 0.001"/></geometry>
       </collision>
     </link>
