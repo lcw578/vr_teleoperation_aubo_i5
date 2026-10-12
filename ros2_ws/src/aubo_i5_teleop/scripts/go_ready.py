@@ -61,13 +61,12 @@ WORLD = "world"
 # ⚠️ 这是**测试工具**里的比例律（把位置误差换成速度命令），不是控制链路的一部分——
 #    和位置模式下"直接发目标位置"是同一性质：只为把机械臂摆到已知位姿。
 VEL_KP = 1.5          # [1/s]：v = VEL_KP * (q_target - q)
-VEL_LIMIT = 3.0       # [rad/s]，低于厂家上限 3.15/3.2，留余量
+from robot_parameters import VELOCITY_LIMITS
 
 
 class GoReady(Node):
     def __init__(self, duration, mode):
         super().__init__("go_ready")
-        self.set_parameters([rclpy.parameter.Parameter("use_sim_time", value=True)])
         self.duration = duration
         self.mode = mode
         topic = CMD_TOPIC_VEL if mode == "velocity" else CMD_TOPIC
@@ -82,8 +81,8 @@ class GoReady(Node):
         self.js = dict(zip(m.name, m.position))
 
     def spin(self, sec):
-        t0 = time.time()
-        while time.time() - t0 < sec:
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < sec:
             rclpy.spin_once(self, timeout_sec=0.02)
 
     def ee(self):
@@ -101,9 +100,9 @@ def main():
     ap.add_argument("--duration", type=float, default=4.0, help="持续发送的时长 [s]")
     ap.add_argument("--mode", default="position", choices=["position", "velocity"],
                     help="position=直接发目标位置（默认）；velocity=按位置误差比例下发速度")
-    args = ap.parse_args()
+    args, ros_args = ap.parse_known_args()
 
-    rclpy.init()
+    rclpy.init(args=ros_args)
     node = GoReady(args.duration, args.mode)
     try:
         node.spin(1.5)
@@ -116,14 +115,14 @@ def main():
 
         msg = Float64MultiArray()
         msg.data = list(args.ready)
-        t0 = time.time()
-        while time.time() - t0 < args.duration:
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < args.duration:
             if args.mode == "velocity":
                 # v = k*(q_target - q)，逐关节限幅。位置误差收敛后速度自然趋 0。
                 data = []
-                for k, tgt in zip(GROUP, args.ready):
+                for k, tgt, limit in zip(GROUP, args.ready, VELOCITY_LIMITS):
                     e = tgt - node.js.get(k, tgt)
-                    data.append(max(-VEL_LIMIT, min(VEL_LIMIT, VEL_KP * e)))
+                    data.append(max(-limit, min(limit, VEL_KP * e)))
                 msg.data = data
             node.pub.publish(msg)
             node.spin(0.05)

@@ -43,7 +43,10 @@ def load_yaml_abs(path):
 
 def launch_setup(context, *args, **kwargs):
     moveit_config_package = LaunchConfiguration("moveit_config_package")
-    srdf_file = LaunchConfiguration("srdf_file")
+    gripper = LaunchConfiguration("gripper").perform(context)
+    srdf_file = LaunchConfiguration("srdf_file").perform(context)
+    if srdf_file == "auto":
+        srdf_file = "teleop_rg.srdf" if gripper == "rg" else "teleop.srdf"
 
     robot_description_content = Command(
         [
@@ -56,6 +59,7 @@ def launch_setup(context, *args, **kwargs):
                     "aubo_i5_teleop.urdf.xacro",
                 ]
             ),
+            " gripper:=", gripper,
         ]
     )
     robot_description = {
@@ -67,12 +71,12 @@ def launch_setup(context, *args, **kwargs):
     srdf_path = os.path.join(
         get_package_share_directory("aubo_i5_teleop"),
         "config",
-        srdf_file.perform(context),
+        srdf_file,
     )
     with open(srdf_path) as f:
         robot_description_semantic = {"robot_description_semantic": f.read()}
 
-    # 关节限位也用本包那份（含 ±3.04 位置限位）；官方那份只有速度、没有位置限位
+    # 关节限位也用本包那份（含 ±175°（手册型号限位） 位置限位）；官方那份只有速度、没有位置限位
     kinematics_yaml = load_yaml("aubo_moveit_config", "config/kinematics.yaml")
     joint_limits_yaml = {
         "robot_description_planning": load_yaml_abs(
@@ -201,6 +205,7 @@ def launch_setup(context, *args, **kwargs):
 
 def generate_launch_description():
     declared_arguments = [
+        DeclareLaunchArgument("gripper", default_value="rg", choices=["rg", "ag95"]),
         DeclareLaunchArgument(
             "moveit_config_package",
             default_value="aubo_moveit_config",
@@ -208,7 +213,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "srdf_file",
-            default_value="teleop.srdf",
+            default_value="auto",
             description="SRDF 文件名（aubo_robot.srdf 或 aubo_i5.srdf，内容一致）",
         ),
     ]

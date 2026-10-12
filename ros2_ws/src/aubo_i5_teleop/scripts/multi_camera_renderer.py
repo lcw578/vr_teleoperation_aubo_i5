@@ -6,8 +6,8 @@ sensor_msgs/Image + CameraInfo。架构 = 旁路渲染：订阅 /joint_states �
 按关节名回填 qpos → mj_forward → EGL 离屏渲染 → 发布。
 不碰上游 mujocos_ros2_control（它没有相机能力）。
 
-时间戳：图像 stamp 取最近一帧 /joint_states 的 header stamp——图像与
-关节状态天然对齐（录制时同入一个 rosbag 即时间同步）。
+时间戳：图像 stamp 取最近一帧 /joint_states 的 header stamp——图像表示该关节快照的渲染结果；接收延迟仍需在日志中检查。
+仅重建关节状态，AG95 demo 的自由物体状态未同步，不能用于动态物体示范数据。
 
 D405 特殊处理：腕部相机必须跟随手臂运动，但上游机器人文件不可改（无法把
 相机挂进 ag95_base），所以相机元素放 worldbody，本节点每帧用 ag95_base
@@ -38,7 +38,10 @@ try:
 except ImportError:
     cv2 = None  # JPEG 流不可用时退化为仅 raw（selftest 不需要 cv2）
 
-SCENE = "/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2_demo.xml"
+from gripper_profile import resolve
+GRIP = resolve()
+SCENE = ("/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2_rg_cameras.xml"
+         if GRIP["name"] == "rg" else "/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2_demo.xml")
 RATE_HZ = 30.0
 
 # 三路相机：名字 → (宽, 高, fovy度, frame_id)
@@ -65,11 +68,17 @@ class CameraRig:
         #    阴影渲染，把 30Hz 压到 3.5Hz（实测首场录制）。关阴影后三路合计
         #    2.3ms（带阴影 1.9+0.7+0.7ms），争用下也有 10 倍余量。
         self.m.vis.quality.shadowsize = 0
+        self.m.vis.global_.offwidth = max(w for w, _, _, _ in CAMERAS.values())
+        self.m.vis.global_.offheight = max(h for _, h, _, _ in CAMERAS.values())
         self.d = mujoco.MjData(self.m)
         mujoco.mj_resetDataKeyframe(self.m, self.d, 0)
         mujoco.mj_forward(self.m, self.d)
         self.base_bid = mujoco.mj_name2id(self.m, mujoco.mjtObj.mjOBJ_BODY, "ag95_base")
-        self.cam_ids = {n: mujoco.mj_name2id(self.m, mujoco.mjtObj.mjOBJ_CAMERA, n) for n in CAMERAS}
+        self.is_rg = mujoco.mj_name2id(self.m, mujoco.mjtObj.mjOBJ_BODY, "rg_base") >= 0
+        self.cam_ids = {n: mujoco.mj_name2id(self.m, mujoco.mjtObj.mjOBJ_CAMERA,
+                        "cam_wrist_d405" if self.is_rg and n == "d405_wrist" else n) for n in CAMERAS}
+        if any(cid < 0 for cid in self.cam_ids.values()):
+            raise ValueError("scene is missing configured cameras")
         # 关节名 → qpos 地址（/joint_states 按名回填用）
         self.jnt_qadr = {}
         for j in range(self.m.njnt):
@@ -109,7 +118,8 @@ class CameraRig:
     def render_all(self):
         """渲染三路 → {名字: (h,w,3) uint8}。"""
         self.mujoco.mj_forward(self.m, self.d)   # 每渲染帧一次（详见 apply_joint_state 注）
-        self._apply_d405_follow()
+        if not self.is_rg:
+            self._apply_d405_follow()
         out = {}
         for n, (w, h, _, _) in CAMERAS.items():
             r = self._renderers[n]
@@ -164,7 +174,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scene", default=SCENE)
     parser.add_argument("--selftest", action="store_true", help="离线渲染一帧并存图退出（无需 ROS）")
-    args = parser.parse_args()
+    args, ros_args = parser.parse_known_args()
 
     if args.selftest:
         sys.exit(selftest(args.scene))
@@ -173,7 +183,7 @@ def main():
     from rclpy.node import Node
     from sensor_msgs.msg import CameraInfo, CompressedImage, JointState
 
-    rclpy.init()
+    rclpy.init(args=ros_args)
 
     class MultiCameraNode(Node):
         def __init__(self):
@@ -193,18 +203,25 @@ def main():
                     self.create_publisher(CameraInfo, f"/camera/{n}/camera_info", 1),
                 )
             self.latest_stamp = None
+            self.last_published_stamp = None
+            self.latest_arrival = None
             self.create_subscription(JointState, "/joint_states", self._on_js, 10)
             self.timer = self.create_timer(1.0 / RATE_HZ, self._tick)
             self.get_logger().info(
                 f"三路虚拟相机渲染中 @{RATE_HZ:.0f}Hz（scene={args.scene}）")
 
         def _on_js(self, msg: JointState):
+            self.latest_arrival = time.monotonic()
             self.latest_stamp = msg.header.stamp
             self.rig.apply_joint_state(msg.name, msg.position)
 
         def _tick(self):
-            if self.latest_stamp is None:
+            if self.latest_stamp is None or time.monotonic() - self.latest_arrival > 0.2:
                 return  # 还没收到 /joint_states
+            stamp = (self.latest_stamp.sec, self.latest_stamp.nanosec)
+            if stamp == self.last_published_stamp:
+                return
+            self.last_published_stamp = stamp
             imgs = self.rig.render_all()
             for n, img in imgs.items():
                 h, w, _ = img.shape

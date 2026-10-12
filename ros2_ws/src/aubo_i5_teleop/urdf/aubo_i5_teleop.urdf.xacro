@@ -20,7 +20,8 @@
   -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="aubo_i5_robot">
 
-  <xacro:arg name="mujoco_model" default="/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2.xml"/>
+  <xacro:arg name="gripper" default="rg"/>
+  <xacro:arg name="mujoco_model" default="${'/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2_rg.xml' if '$(arg gripper)' == 'rg' else '/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2.xml'}"/>
   <xacro:arg name="initial_keyframe" default="ready"/>
   <!-- headless=true：MuJoCo 不开交互窗口（2026-09-26 新增）。
        为什么：交互窗口与离屏相机渲染抢 GPU（窗口 60fps 带阴影持续渲染），
@@ -33,7 +34,7 @@
   <xacro:arg name="arm_control_mode" default="position"/>
 
   <!-- ============ 官方模型本体 ============ -->
-  <xacro:include filename="$(find aubo_description)/urdf/aubo_i5.urdf"/>
+  <xacro:include filename="$(find aubo_i5_teleop)/urdf/aubo_i5_model.urdf"/>
 
   <!-- ============ ee_link ============
        逐字复制官方 inc/aubo_macro.xacro 里的定义，保持与 SRDF 一致。
@@ -83,11 +84,11 @@
   <xacro:arg name="camera_mount_rpy"  default="0 0 0"/>
 
   <!-- ============ 夹爪档（2026-10-05）============
-       ag95 = 基线（AG95 两指夹爪"代用件"）；rg = 自研齿条夹爪（整机模型提取，
+       ag95 = 可选（AG95 两指夹爪"代用件"）；rg = 默认自研齿条夹爪（整机模型提取，
        论文 Xu et al. JFR 2026）。由 stage2a/stage2b 的 gripper:=ag95|rg 选择，
        与 MJCF 侧（scene_ros2.xml / scene_ros2_rg.xml）、控制器（controllers*.yaml）、
        节点侧（环境变量 TELEOP_GRIPPER）必须**四者一致**。 -->
-  <xacro:arg name="gripper" default="ag95"/>
+
 
   <xacro:unless value="${'$(arg gripper)' == 'rg'}">
   <xacro:include filename="$(find dh_ag95_description)/urdf/ag95_macro.xacro"/>
@@ -135,41 +136,26 @@
   <!-- ============ ros2_control：MuJoCo 后端 ============
        mujoco_ros2_control 把 ros2_control 的关节映射到 MJCF 里的 actuator。
        MJCF 那份 scene_ros2.xml 里是 6 个 position 执行器，所以这里命令接口用 position。
-       换真机时只需把 <plugin> 改回 aubo_driver/AuboHardwareInterface。
+       真机必须另建 arm-only 硬件块并核对驱动接口，不能直接替换插件。
   -->
-  <!--
-      关节限位在这里显式写成 ±3.04 rad（≈174.2°），与 MJCF 的 joint range 保持一致。
-
-      背景：官方 URDF 把六个关节全写成 ±360°（±6.28319），对真机 i5 不可信——
-      两个第三方 i5 模型（ian-chuang/Manipulator-Mujoco、zyz0721/Auboi5_Scan_Simulator）
-      都用 ±3.04。经用户同意先按 ±174° 设上，**待 Aubo i5 数据手册核实**。
-      这个值影响三处，必须一致：MJCF 的 joint range、这里的命令接口 min/max、
-      以及 config/joint_limits.yaml（MoveIt 用）。
-  -->
-  <xacro:macro name="aubo_joint_iface" params="joint_name">
+  <!-- Model limits: i5/CB4 manual V4.5.11, p29 / Appendix E pVI.
+       Generated together with MJCF and MoveIt from config/robot_spec.yaml.
+       This is a MuJoCo hardware block; an AUBO hardware block must be separate. -->
+  <xacro:property name="robot_spec" value="${xacro.load_yaml('$(find aubo_i5_teleop)/config/robot_spec.yaml')}"/>
+  <xacro:macro name="aubo_joint_iface" params="joint_name index">
     <joint name="${joint_name}">
-      <!-- 命令接口必须与 MJCF 的执行器类型**匹配**，不能两个都声明。
-           实测：声明了 position 而执行器是 <velocity> 时，mujoco_ros2_control 在
-           register_urdf_joints 里直接抛
-             "Position command interface for the joint : <name> is not supported
-              with motor or custom actuator without defining the PIDs"
-           然后 abort。所以由 arm_control_mode 这个 xacro 参数二选一。
-           位置模式限位 ±3.04（≈174.2°，与 MJCF 的 joint range 一致，来源见文件上方注释）；
-           速度模式限位取厂家 joint_limits.yaml 的 max_velocity（3.15 rad/s），
-           与 actuators_velocity.xml 的 ctrlrange 保持一致。 -->
-      <!-- 注意写法：xacro 表达式作用域里没有 arg，必须先用 $(arg ...) 替换成字面量再比较。
-           直接写 ${arm_control_mode == 'velocity'} 会报
-           "when evaluating expression 'arm_control_mode == 'velocity''"。 -->
+      <!-- Simulation declares one command interface matching its actuator.
+           Physical AUBO driver requires a separate arm-only hardware block. -->
       <xacro:if value="${'$(arg arm_control_mode)' == 'velocity'}">
         <command_interface name="velocity">
-          <param name="min">-3.15</param>
-          <param name="max">3.15</param>
+          <param name="min">${-robot_spec['velocity_limits_rad_s'][int(index)]}</param>
+          <param name="max">${robot_spec['velocity_limits_rad_s'][int(index)]}</param>
         </command_interface>
       </xacro:if>
       <xacro:unless value="${'$(arg arm_control_mode)' == 'velocity'}">
         <command_interface name="position">
-          <param name="min">-3.04</param>
-          <param name="max">3.04</param>
+          <param name="min">${-robot_spec['position_limit_rad']}</param>
+          <param name="max">${robot_spec['position_limit_rad']}</param>
         </command_interface>
       </xacro:unless>
       <state_interface name="position">
@@ -188,12 +174,12 @@
       <param name="headless">$(arg headless)</param>
     </hardware>
 
-    <xacro:aubo_joint_iface joint_name="shoulder_joint"/>
-    <xacro:aubo_joint_iface joint_name="upperArm_joint"/>
-    <xacro:aubo_joint_iface joint_name="foreArm_joint"/>
-    <xacro:aubo_joint_iface joint_name="wrist1_joint"/>
-    <xacro:aubo_joint_iface joint_name="wrist2_joint"/>
-    <xacro:aubo_joint_iface joint_name="wrist3_joint"/>
+    <xacro:aubo_joint_iface joint_name="shoulder_joint" index="0"/>
+    <xacro:aubo_joint_iface joint_name="upperArm_joint" index="1"/>
+    <xacro:aubo_joint_iface joint_name="foreArm_joint" index="2"/>
+    <xacro:aubo_joint_iface joint_name="wrist1_joint" index="3"/>
+    <xacro:aubo_joint_iface joint_name="wrist2_joint" index="4"/>
+    <xacro:aubo_joint_iface joint_name="wrist3_joint" index="5"/>
 
     <!-- 夹爪：只暴露一个关节。
          AG95 档：四连杆闭链，8 个 revolute 关节实际只有 1 个自由度，靠 tendon + equality 耦合；

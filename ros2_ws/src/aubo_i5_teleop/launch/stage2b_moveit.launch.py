@@ -4,7 +4,7 @@
   - **不起 joint_state_publisher**：阶段 1 没有控制器，需要一个假的关节状态源；
     阶段 2 里 MuJoCo 通过 joint_state_broadcaster 提供真实 /joint_states，
     再起一个假的会让 MoveIt 在两套状态之间跳。
-  - joint_limits 用本包 config/joint_limits.yaml（含 ±3.04 位置限位），
+  - joint_limits 用本包 config/joint_limits.yaml（含 ±175°（手册型号限位） 位置限位），
     不用官方那份（官方那份没有位置限位，会让 MoveIt 按 URDF 的 ±360° 规划）。
 
 用法（先跑阶段 2a）：
@@ -82,7 +82,7 @@ def launch_setup(context, *args, **kwargs):
 
     kinematics_yaml = load_yaml("aubo_moveit_config", "config/kinematics.yaml")
 
-    # 用本包的限位（含 ±3.04 位置限位），不是官方那份
+    # 用本包的限位（含 ±175°（手册型号限位） 位置限位），不是官方那份
     joint_limits_yaml = {
         "robot_description_planning": load_yaml_abs(
             os.path.join(teleop_share, "config", "joint_limits.yaml")
@@ -154,7 +154,7 @@ def launch_setup(context, *args, **kwargs):
             moveit_controllers,
             planning_scene_monitor_parameters,
             joint_limits_yaml,
-            {"use_sim_time": True},
+            {"use_sim_time": ParameterValue(LaunchConfiguration("use_sim_time"), value_type=bool)},
         ],
     )
 
@@ -173,7 +173,7 @@ def launch_setup(context, *args, **kwargs):
             ompl_planning_pipeline_config,
             kinematics_yaml,
             joint_limits_yaml,
-            {"use_sim_time": True},
+            {"use_sim_time": ParameterValue(LaunchConfiguration("use_sim_time"), value_type=bool)},
         ],
     )
 
@@ -184,6 +184,7 @@ def launch_setup(context, *args, **kwargs):
         executable="add_scene_floor.py",
         name="add_scene_floor",
         output="log",
+        parameters=[{"use_sim_time": ParameterValue(LaunchConfiguration("use_sim_time"), value_type=bool)}],
     )
 
     return [move_group_node, rviz_node, floor_node]
@@ -192,11 +193,12 @@ def launch_setup(context, *args, **kwargs):
 def generate_launch_description():
     return LaunchDescription(
         [
+            DeclareLaunchArgument("use_sim_time", default_value="true"),
             DeclareLaunchArgument(
                 "gripper",
-                default_value="ag95",
+                default_value="rg",
                 choices=["ag95", "rg"],
-                description="夹爪档：ag95（基线）/ rg（自研齿条夹爪，自动选 teleop_rg.srdf）",
+            description="夹爪档：ag95（可选）/ rg（默认自研齿条夹爪，自动选 teleop_rg.srdf）",
             ),
             DeclareLaunchArgument(
                 "srdf_file",

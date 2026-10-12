@@ -30,7 +30,6 @@ EE_FRAME = "gripper_tip_link"
 class Probe(Node):
     def __init__(self):
         super().__init__("simtime_skew_probe")
-        self.set_parameters([rclpy.parameter.Parameter("use_sim_time", value=True)])
         qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT,
                          history=HistoryPolicy.KEEP_LAST)
         self.js_stamp = None

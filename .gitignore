@@ -25,3 +25,7 @@ assets/aubo_i5/.probe_*.xml
 __pycache__/
 *.pyc
 certs/
+
+# Local teleoperation sessions and logs
+data/
+.teleop_session.lock

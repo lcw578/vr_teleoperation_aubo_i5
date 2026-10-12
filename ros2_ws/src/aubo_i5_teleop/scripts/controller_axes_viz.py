@@ -11,7 +11,7 @@
                            ——盲操时瞄一眼屏幕，手柄三根轴与夹爪并排，旋转轴混淆当场可见。
 
 只订阅 + 广播 TF，不改链路任何行为。RViz 侧 teleop.rviz 已配 TF 显示层（只显示这两帧）。
-注意事项：本节点 use_sim_time=True（RViz 在仿真时钟上，墙钟时间戳会被丢弃）。
+注意事项：时钟模式由 launch／ROS 参数统一指定，与输入和 RViz 保持一致。
 --input mock_vr 可用键盘 Mock 离线测试。Ctrl-C 退出。
 """
 import sys
@@ -56,7 +56,6 @@ _mj_bid = mujoco.mj_name2id(_mj_model, mujoco.mjtObj.mjOBJ_BODY, GRIP["ee_body"]
 class ControllerViz(Node):
     def __init__(self, input_prefix: str):
         super().__init__("controller_axes_viz")
-        self.set_parameters([rclpy.parameter.Parameter("use_sim_time", value=True)])
         self.br = TransformBroadcaster(self)
         self.pub_markers = self.create_publisher(MarkerArray, "/controller_viz_markers", 10)
         self.ee_p = None
@@ -74,11 +73,11 @@ class ControllerViz(Node):
             for a, j in zip(_mj_qadr, GROUP):
                 _mj_data.qpos[a] = q[j]
             mujoco.mj_forward(_mj_model, _mj_data)
-            self.ee_p = (_mj_data.xpos[_mj_bid]
-                         + _mj_data.xmat[_mj_bid].reshape(3, 3) @ TIP_OFF)
+            from teleop_geometry import tool_pose
+            self.ee_p, tool_R = tool_pose(_mj_model, _mj_data, _mj_bid, GRIP)
             qw = np.zeros(4)
             mujoco.mju_mat2Quat(qw, np.ascontiguousarray(
-                _mj_data.xmat[_mj_bid].reshape(3, 3).flatten()))
+                tool_R.flatten()))
             self.ee_q = qw
 
     def _pose(self, msg):
@@ -171,8 +170,8 @@ def main():
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", default="quest", help="位姿话题前缀：quest=真手柄；mock_vr=键盘 Mock")
-    args = ap.parse_args()
-    rclpy.init()
+    args, ros_args = ap.parse_known_args()
+    rclpy.init(args=ros_args)
     node = ControllerViz(args.input)
     node.get_logger().info("controller_axes_viz 就绪：/quest/pose → RViz TF 双帧（真实+镜像）")
     try:

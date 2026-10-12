@@ -5,16 +5,16 @@
 为什么需要：末端体名、抓取点偏移、MJCF 场景文件、FSM 开合值都随夹爪不同，
 而这些常量散落在 8 个节点/工具里。集中到本模块，切换只改一个环境变量。
 
-切换方式：环境变量 `TELEOP_GRIPPER`（默认 ag95）。
+切换方式：环境变量 `TELEOP_GRIPPER`（默认 rg）。
   export TELEOP_GRIPPER=rg     # 用自研齿条夹爪（scene_ros2_rg.xml）
-  unset  TELEOP_GRIPPER        # 回 AG95 基线（scene_ros2.xml）
+  export TELEOP_GRIPPER=ag95   # 可选 AG95 场景（scene_ros2.xml）
 两个场景文件并存，回旧基线不需要改任何代码。
 
 取值出处：
   · ag95：DH AG95 两指夹爪（Manipulator-Mujoco 移植），抓取点 = ag95_base 系
     [-0.0405,-0.0143,0.1492]（2026-09-24 与 URDF gripper_tip_link 现场对齐验证）。
   · rg：自研齿条夹爪（/data/robot_assembly 整机模型提取，论文 Xu et al. JFR 2026）。
-    EE 体取 rg_gear（齿轮），抓取点 = 沿工具轴 +0.10 m（采摘 demo 验证的 TCP 定义）；
+    EE 体取固定 rg_base；TCP 与 URDF rg_tip_link 一致，工具 +Z 指向接近方向。
     开合端点 2026-10-05 实测：−0.4744 → 74.9 mm（张）/ +0.4632 → 35.5 mm（合）。
 """
 from __future__ import annotations
@@ -27,6 +27,7 @@ PROFILES = {
     "ag95": {
         "mjcf": ASSETS + "/scene_ros2.xml",
         "ee_body": "ag95_base",
+        "tool_quat": (1.0, 0.0, 0.0, 0.0),
         "tip_offset": (-0.0405, -0.0143, 0.1492),
         "open": 0.0,          # 命令量 = 外节角（tendon 合成量）
         "close": 0.9,
@@ -38,8 +39,10 @@ PROFILES = {
     },
     "rg": {
         "mjcf": ASSETS + "/scene_ros2_rg.xml",
-        "ee_body": "rg_gear",
-        "tip_offset": (0.0, 0.0, 0.10),
+        "ee_body": "rg_base",
+        "tip_offset": (0.0, 0.0, -0.1048),
+        # Fixed tool frame: +Z approaches the object, independent of gear angle.
+        "tool_quat": (0.0, 1.0, 0.0, 0.0),
         "open": -0.474409,    # 命令量 = 齿轮角
         "close": 0.463234,
         "grasp_joint": "rg_gear_joint",
@@ -47,13 +50,13 @@ PROFILES = {
         # ready 位姿：与 AG95 档**只差腕3**（2.94 vs 1.5708，相差 78.6° 腕部滚转）。
         # 动机（2026-10-07 用户实测选定）：把腕部相机转到**抓取点正上方 104 mm**
         # （1.5708 时相机与抓取点齐平、甩在侧面 +1.4 mm）。腕3=2.94 是 tracker 的
-        # 关节钳位上限（±2.94，限位 ±3.04 留 0.1 余量），不是限位本身。
+        # 关节钳位上限（±2.94，手册型号限位 ±175°；工作界限沿用 ±2.94），不是限位本身。
         "q_rest": (-1.137355, 0.041596, 1.593368, -1.589821, -1.137355, 2.94),
         "desc": "自研齿条夹爪（整机模型提取，论文 JFR2026）",
     },
 }
 
-DEFAULT = "ag95"
+DEFAULT = "rg"
 
 
 def resolve(name: str | None = None) -> dict:
@@ -63,6 +66,8 @@ def resolve(name: str | None = None) -> dict:
         raise SystemExit("未知夹爪档 %r（可选：%s）" % (name, " / ".join(sorted(PROFILES))))
     p = dict(PROFILES[name])
     p["name"] = name
+    if os.environ.get("TELEOP_MODEL"):
+        p["mjcf"] = os.environ["TELEOP_MODEL"]
     return p
 
 

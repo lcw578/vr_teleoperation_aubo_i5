@@ -63,38 +63,38 @@
     <geom type="mesh" group="3" rgba="0.91 0.52 0.0 1" mesh="link0"/>
     <body name="shoulder_Link" gravcomp="1.0" pos="0 0 0.122" quat="0 0 0 1">
       <inertial pos="-1e-05 0.001807 -0.013854" quat="0.999902 -0.0139146 -0.000554021 -0.0014145" mass="4.84858" diaginertia="0.011842 0.0118029 0.00810013"/>
-      <joint name="shoulder_joint" range="-3.04 3.04" actuatorfrcrange="-80 80" damping="0.1" armature="1.5"/>
+      <joint name="shoulder_joint" range="-3.054326190990 3.054326190990" actuatorfrcrange="-80 80" damping="0.1" armature="1.5"/>
       <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_gray" mesh="link1_0"/>
         <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_orange" mesh="link1_1"/>
       <geom type="mesh" group="3" rgba="0.91 0.52 0.0 1" mesh="link1"/>
       <body name="upperArm_Link" gravcomp="1.0" pos="0 0.1215 0" quat="0.5 -0.5 -0.5 -0.5">
         <inertial pos="0.204 0 0.006603" quat="0.500012 0.500012 0.499988 0.499988" mass="10.8363" diaginertia="0.432805 0.425155 0.026024"/>
-        <joint name="upperArm_joint" range="-3.04 3.04" actuatorfrcrange="-80 80" damping="0.1" armature="1.5"/>
+        <joint name="upperArm_joint" range="-3.054326190990 3.054326190990" actuatorfrcrange="-80 80" damping="0.1" armature="1.5"/>
         <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_gray" mesh="link2_0"/>
         <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_darkgray" mesh="link2_1"/>
         <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_orange" mesh="link2_2"/>
         <geom type="mesh" group="3" rgba="0.91 0.52 0.0 1" mesh="link2"/>
         <body name="foreArm_Link" gravcomp="1.0" pos="0.408 0 0" quat="0 -1 0 0">
           <inertial pos="0.264626 -2e-05 0.093611" quat="0.498564 0.501492 0.499882 0.500057" mass="2.84917" diaginertia="0.065327 0.0646765 0.00363354"/>
-          <joint name="foreArm_joint" range="-3.04 3.04" actuatorfrcrange="-60 60" damping="0.1" armature="1.2"/>
+          <joint name="foreArm_joint" range="-3.054326190990 3.054326190990" actuatorfrcrange="-60 60" damping="0.1" armature="1.2"/>
           <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_orange" mesh="link3_0"/>
         <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_gray" mesh="link3_1"/>
           <geom type="mesh" group="3" rgba="0.91 0.52 0.0 1" mesh="link3"/>
           <body name="wrist1_Link" gravcomp="1.0" pos="0.376 0 0" quat="0 0.707107 0.707107 0">
             <inertial pos="3.8e-05 0.011278 -0.001539" quat="0.68759 0.725716 -0.0157544 0.0175555" mass="1.62802" diaginertia="0.00195105 0.00193322 0.00115172"/>
-            <joint name="wrist1_joint" range="-3.04 3.04" actuatorfrcrange="-16 16" damping="0.1" armature="0.05"/>
+            <joint name="wrist1_joint" range="-3.054326190990 3.054326190990" actuatorfrcrange="-16 16" damping="0.1" armature="0.05"/>
             <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_orange" mesh="link4_0"/>
         <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_gray" mesh="link4_1"/>
             <geom type="mesh" group="3" rgba="0.91 0.52 0.0 1" mesh="link4"/>
             <body name="wrist2_Link" gravcomp="1.0" pos="0 0.1025 0" quat="0.707107 -0.707107 0 0">
               <inertial pos="-3.8e-05 -0.011278 -0.001539" quat="0.68759 0.725716 -0.0157544 0.0175555" mass="1.62802" diaginertia="0.00195105 0.00193322 0.00115172"/>
-              <joint name="wrist2_joint" range="-3.04 3.04" actuatorfrcrange="-16 16" damping="0.1" armature="0.05"/>
+              <joint name="wrist2_joint" range="-3.054326190990 3.054326190990" actuatorfrcrange="-16 16" damping="0.1" armature="0.05"/>
               <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_orange" mesh="link5_0"/>
         <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_gray" mesh="link5_1"/>
               <geom type="mesh" group="3" rgba="0.91 0.52 0.0 1" mesh="link5"/>
               <body name="wrist3_Link" gravcomp="1.0" pos="0 -0.094 0" quat="0.707107 0.707107 0 0">
                 <inertial pos="2.2e-05 0.0006 -0.017081" quat="0.503459 0.496517 -0.496517 0.503459" mass="0.1978" diaginertia="0.000184014 0.000118 0.000111986"/>
-                <joint name="wrist3_joint" range="-3.04 3.04" actuatorfrcrange="-10 10" damping="0.1" armature="0.01"/>
+                <joint name="wrist3_joint" range="-3.054326190990 3.054326190990" actuatorfrcrange="-10 10" damping="0.1" armature="0.01"/>
                 <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" material="aubo_gray" mesh="link6_0"/>
                 <geom type="mesh" group="3" rgba="0.91 0.52 0.0 1" mesh="link6"/>
 

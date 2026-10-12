@@ -1,15 +1,7 @@
 #!/usr/bin/env python3
-"""夹爪状态机节点：手柄 Trigger（未来）/ 键盘 Z（现在）→ 开/闭两状态 + 斜率执行。
-
-设计（2026-09-25 已批）：
-  · **两状态**（用户裁定）：OPEN(0.0) ↔ CLOSED(0.9)——0.93 是 ctrlrange 顶格，
-    留 0.03 余量；不做剪刀，HarvestFlex 的 Detach/剪断阶段在仿真里没有对应物。
-  · **开关量**（不做模拟量）：buttons[1] 的**上升沿**切换一次状态（真 VR 的
-    Trigger 键同布局）；VLA 需要的离散状态就是 OPEN/CLOSED（+ moving 标志）。
-  · **斜率执行**：命令值以 `rate`（默认 1.5 /s，即 0→0.9 约 0.6 s）滑向目标态，
-    避免闭合瞬间冲击（将来抓真实物体时接触近静态）。
-  · **并行**：夹爪与臂是独立控制器/关节/执行器——本节点只订阅按键、只发
-    /gripper_controller/commands，与 /target_pose 链路零耦合（验收时会显式测）。
+"""Two-state gripper command: Trigger press toggles OPEN/CLOSED independently
+of arm Grip. Values are simulation joint coordinates from gripper_profile.
+Measured joint feedback and desired binary state are logged separately.
 """
 import sys
 
@@ -17,9 +9,10 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Joy
-from std_msgs.msg import Float64MultiArray
+from std_msgs.msg import Float64MultiArray, String
+from sensor_msgs.msg import JointState
+import json
 
-JOY_TOPICS = ["/mock_vr/joy", "/quest/joy"]   # 同时订两路：键盘 Mock 与真头显（2026-09-27 功能缺口：QUEST 会话 FSM 收不到消息）
 CMD_TOPIC = "/gripper_controller/commands"
 # ---- 夹爪档（TELEOP_GRIPPER=ag95|rg）：EE 体名/抓取点/场景文件随夹爪切换 ----
 import os as _os
@@ -41,13 +34,18 @@ def fast_qos():
 class GripperFSM(Node):
     def __init__(self):
         super().__init__("gripper_fsm")
-        self.set_parameters([rclpy.parameter.Parameter("use_sim_time", value=True)])
         self.state = "OPEN"           # 对外的离散状态（OPEN/CLOSED）
         self.target_v = OPEN_V
         self.cmd_v = OPEN_V
         self._prev_btn = 0
         self._toggles = 0
-        for t in JOY_TOPICS:
+        self.declare_parameter("input_prefix", "quest")
+        self.measured = None
+        self.measured_stamp = None
+        self.create_subscription(JointState, "/joint_states", self._on_feedback, fast_qos())
+        self.pub_stamped = self.create_publisher(JointState, "/teleop/gripper_command", 10)
+        self.pub_status = self.create_publisher(String, "/teleop/gripper_status", 10)
+        for t in ["/" + str(self.get_parameter("input_prefix").value) + "/joy"]:
             self.create_subscription(Joy, t, self._on_joy, fast_qos())
         self.pub = self.create_publisher(Float64MultiArray, CMD_TOPIC, 10)
         self.timer = self.create_timer(1.0 / RATE_HZ, self._tick)
@@ -55,13 +53,19 @@ class GripperFSM(Node):
                                "buttons[1] 上升沿切换"
                                % (GRIP["name"], OPEN_V, CLOSED_V, RATE))
 
+    def _on_feedback(self, msg):
+        if GRIP["grasp_joint"] in msg.name:
+            index = msg.name.index(GRIP["grasp_joint"])
+            if index < len(msg.position):
+                self.measured = msg.position[index]
+                self.measured_stamp = msg.header.stamp.sec * 1000000000 + msg.header.stamp.nanosec
+
     def _on_joy(self, msg):
         if len(msg.buttons) < 2 or len(msg.axes) < 1:
             return
         # ⚠️ Trigger 用**模拟量 v 的阈值上升沿**判定（上游 GRIP_BUTTON/TRIGGER 同源
         #    SDK 数据）：p/t 字段含"触碰"（手指搭上就算 true），曾导致"碰一下就动"。
-        #    v>0.7 的上升沿才是真按压。且**只在接合时**响应（上游 #6：脱离时夹爪
-        #    冻结——防止非介入期间 Trigger 误触，2026-09-27 用户反馈实锤）。
+        #    v>0.7 的上升沿才是真按压。Grip 与 Trigger 独立，脱离时也允许切换夹爪。
         v = msg.axes[0]
         btn = 1 if v > 0.7 else 0
         if self._prev_btn == 0 and btn == 1:      # 模拟量阈值上升沿
@@ -78,7 +82,18 @@ class GripperFSM(Node):
             self.cmd_v = min(self.target_v, self.cmd_v + step)
         elif self.cmd_v > self.target_v:
             self.cmd_v = max(self.target_v, self.cmd_v - step)
+        now = self.get_clock().now()
+        stamped = JointState()
+        stamped.header.stamp = now.to_msg()
+        stamped.name = [GRIP["grasp_joint"]]
+        stamped.position = [self.cmd_v]
+        self.pub_stamped.publish(stamped)
         self.pub.publish(Float64MultiArray(data=[self.cmd_v]))
+        self.pub_status.publish(String(data=json.dumps({
+            "stamp_ns": now.nanoseconds, "command_state": self.state,
+            "command_position": self.cmd_v, "measured_position": self.measured,
+            "measured_stamp_ns": self.measured_stamp,
+            "moving_command": abs(self.cmd_v - self.target_v) > 1e-8})))
 
 
 def main():

@@ -1,0 +1,6 @@
+{
+  "repository": "https://github.com/Dream-Machines-Robotics/vr-teleop-kit",
+  "commit": "8d37f3d6bd44c8ce646f7bc110ac98e802e0ab57",
+  "license": "Apache-2.0",
+  "local_changes": "See LOCAL_CHANGES.md; original algorithm retained."
+}

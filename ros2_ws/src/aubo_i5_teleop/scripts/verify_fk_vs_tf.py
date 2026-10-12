@@ -22,7 +22,10 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from rclpy.time import Time
 from sensor_msgs.msg import JointState
 
-SC = "/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2.xml"
+from gripper_profile import resolve
+from teleop_geometry import tool_pose
+GRIP = resolve()
+SC = GRIP["mjcf"]
 GROUP = ["shoulder_joint", "upperArm_joint", "foreArm_joint",
          "wrist1_joint", "wrist2_joint", "wrist3_joint"]
 OFF = np.array([-0.0405, -0.0143, 0.1492])   # MJCF ag95_base -> 夹持点（与 gen_bench_poses 一致）
@@ -31,15 +34,14 @@ m = mujoco.MjModel.from_xml_path(SC)
 d = mujoco.MjData(m)
 qadr = [m.jnt_qposadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, j)] for j in GROUP]
 dofs = [m.jnt_dofadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, j)] for j in GROUP]
-bid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "ag95_base")
+bid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, GRIP["ee_body"])
 
 
 def fk(q):
     for a, v in zip(qadr, q):
         d.qpos[a] = v
     mujoco.mj_forward(m, d)
-    R = d.xmat[bid].reshape(3, 3).copy()
-    p = d.xpos[bid] + R @ OFF
+    p, R = tool_pose(m, d, bid, GRIP)
     qw = np.zeros(4)
     mujoco.mju_mat2Quat(qw, np.ascontiguousarray(R).flatten())
     return p, np.array([qw[1], qw[2], qw[3], qw[0]])   # 转 (x,y,z,w) 与 TF 同约定
@@ -48,7 +50,6 @@ def fk(q):
 class Probe(Node):
     def __init__(self):
         super().__init__("fk_vs_tf_probe")
-        self.set_parameters([rclpy.parameter.Parameter("use_sim_time", value=True)])
         qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT,
                          history=HistoryPolicy.KEEP_LAST)
         self.q = {}
@@ -77,7 +78,7 @@ def main():
         q = [node.q[j] for j in GROUP]
         p_fk, q_fk = fk(q)
         try:
-            tf = node.buffer.lookup_transform("world", "gripper_tip_link", Time())
+            tf = node.buffer.lookup_transform("world", GRIP["tip_link"], Time())
         except Exception:
             continue
         t = tf.transform.translation

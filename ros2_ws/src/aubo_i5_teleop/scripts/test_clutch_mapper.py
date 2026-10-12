@@ -4,7 +4,7 @@
   A. 上游 11 项 sanity 测试移植（_refs/vr-teleop-kit 的 main()，断言不变；
      上游用 R=quest→armbase，我们用 R_trans —— 数学同构）。
   B. 本项目新增 6 项（2026-09-25 设计评审定的验收单）：
-     TA 世界轴语义（含换姿态不变性） / TB 缩放切换零跳变 / TC 重离合零跳变 /
+     TA 工具局部轴语义（含换姿态验证） / TB 缩放切换零跳变 / TC 重离合零跳变 /
      TD 1000-tick 压力 / TE 四元数约定往返 / TF 半球翻转不反向。
 
 用法：/home/lcw/tomato_robot/.venv/bin/python scripts/test_clutch_mapper.py
@@ -135,14 +135,14 @@ def suite_new():
     m = ClutchPoseMapper()
     m.engage(CTRL_P, CTRL_Q, EE_P, EE_Q)                 # 接合时工具=单位姿态
     _, q1 = m.target(CTRL_P, q_inc)
-    check("TA1 世界增量直接作用（工具=I）", ang_deg(q1, q_inc) < 0.01,
+    check("TA1 局部增量（工具=I）", ang_deg(q1, q_inc) < 0.01,
           "差 %.4f°" % ang_deg(q1, q_inc))
     ee_tilt = rotvec_to_quat(np.array([np.pi / 2, 0.0, 0.0]))   # 工具绕 x 转 90°
     m_t = ClutchPoseMapper()
     m_t.engage(CTRL_P, CTRL_Q, EE_P, ee_tilt)            # 同一手柄增量，不同接合姿态
     _, q2 = m_t.target(CTRL_P, q_inc)
-    expected = quat_mul(q_inc, ee_tilt)                  # 世界系前置：Rz(30°) ⊗ Rx(90°)
-    check("TA2 换接合姿态仍绕世界 ẑ 转 30°（轴交叉回归）",
+    expected = quat_mul(ee_tilt, q_inc)                  # 世界系前置：Rz(30°) ⊗ Rx(90°)
+    check("TA2 换接合姿态绕工具局部 Z 转 30°",
           ang_deg(q2, expected) < 0.01, "差 %.4f°" % ang_deg(q2, expected))
     # 原位旋转位置不动（不画大圆）。
     m2 = ClutchPoseMapper()

@@ -28,6 +28,7 @@ import threading
 import time
 
 import numpy as np
+from teleop_geometry import quest_pose
 import mujoco          # R_CALIB 四元数变换需要（曾漏 import → 每帧 NameError → ws 线程死亡）
 import rclpy
 from geometry_msgs.msg import PoseStamped
@@ -40,7 +41,7 @@ RELAY_WS = "wss://127.0.0.1:8443/ws"
 POSE_TOPIC = "/quest/pose"
 JOY_TOPIC = "/quest/joy"
 HEAD_YAW_TOPIC = "/quest/head_yaw"   # 头显偏航（rad，世界系），供映射器做接合 yaw 修正
-FRAME = "quest_world"
+FRAME = "world"
 
 # 每手 10 按钮。client.js 按 WebXR gamepad 顺序上送，标签（v1.0 源码）：
 #   0 trigger(食指, 模拟量 v)  1 squeeze/grip(侧键, 模拟量)  2 thumbstick 按压
@@ -112,6 +113,9 @@ class QuestAdapter(Node):
         self._joy_msg = None
         self._n_frames = 0
         self._head_yaw = None
+        from std_msgs.msg import String
+        self.pub_timing = self.create_publisher(String, "/quest/frame_timing", 10)
+        self._frame_sequence = 0
         self.pub_yaw = self.create_publisher(Float64MultiArray, HEAD_YAW_TOPIC, 10)
         self._frame_time = 0.0
         self._last_log = 0.0
@@ -130,18 +134,18 @@ class QuestAdapter(Node):
         if "position" not in right or "orientation" not in right:
             return
         p_q = np.asarray(right["position"], float)
-        q_q = np.asarray(right["orientation"], float)   # [w,x,y,z]
-        # Quest 系 → 臂基座系（R_CALIB，约定 A）：位置向量左乘；四元数左乘同 R
-        p = (_R_QUEST_TO_ARM @ p_q).tolist()
-        q = quat_quest_to_arm_wxyz(q_q)
+        try:
+            p, q, q_q = quest_pose(p_q, right["orientation"])
+        except (ValueError, TypeError, IndexError):
+            return
         # Joy：右手柄为主手。buttons = [grip 电平, trigger 电平, A, B]
         rb = right.get("buttons") or []
 
         def b(i):
-            return 1 if i < len(rb) and (rb[i].get("p") or rb[i].get("t")) else 0
+            return 1 if i < len(rb) and rb[i].get("p", False) else 0
 
         joy = Joy()
-        joy.buttons = [b(BTN_GRIP), b(BTN_TRIGGER), b(BTN_PRIMARY), b(BTN_SECONDARY)]
+        joy.buttons = [int(float(rb[BTN_GRIP].get("v", 0.0)) > 0.7) if BTN_GRIP < len(rb) else 0, b(BTN_TRIGGER), b(BTN_PRIMARY), b(BTN_SECONDARY)]
         joy.axes = [float(rb[BTN_TRIGGER]["v"]) if BTN_TRIGGER < len(rb) else 0.0,
                     float(rb[BTN_GRIP]["v"]) if BTN_GRIP < len(rb) else 0.0]
 
@@ -155,6 +159,8 @@ class QuestAdapter(Node):
         ps = PoseStamped()
         ps.header.frame_id = FRAME
         ps.header.stamp = self.get_clock().now().to_msg()
+        joy.header.stamp = ps.header.stamp
+        joy.header.frame_id = FRAME
         ps.pose.position.x, ps.pose.position.y, ps.pose.position.z = p
         # 本节点的 PoseStamped 对外契约是 (x,y,z,w)（geometry_msgs 标准）：
         # 上游 [w,x,y,z] → 标准 (x,y,z,w)
@@ -170,6 +176,13 @@ class QuestAdapter(Node):
         #    asyncio 收帧线程霸占 GIL，rclpy.spin 线程的 timer/订阅回调全部饿死，
         #    表现为"适配器在收帧但 ROS 零发布"。收一发一：发布率=收帧率（~90Hz），
         #    且天然无缓存帧（stale guard 不再需要）。
+        from std_msgs.msg import String
+        self._frame_sequence += 1
+        self.pub_timing.publish(String(data=json.dumps({
+            "sequence": self._frame_sequence, "browser_uptime_ms": msg.get("t_client"),
+            "receive_ros_ns": self.get_clock().now().nanoseconds,
+            "receive_monotonic_ns": time.monotonic_ns(),
+            "pose_stamp_ns": ps.header.stamp.sec * 1000000000 + ps.header.stamp.nanosec})))
         self.pub_pose.publish(ps)
         self.pub_joy.publish(joy)
         if self.pub_raw is not None:
@@ -201,7 +214,7 @@ async def ws_loop(node, uri):
     import websockets
     while True:
         try:
-            async with websockets.connect(uri, ssl=ctx, max_size=None) as ws:
+            async with websockets.connect(uri, ssl=ctx if uri.startswith("wss://") else None, max_size=None) as ws:
                 node.get_logger().info("已连 relay：%s" % uri)
                 async for raw in ws:
                     msg = json.loads(raw)
@@ -218,9 +231,9 @@ def main():
     ap.add_argument("--raw", action="store_true",
                     help="额外发布原始 Quest 坐标到 /quest/pose_raw（标定/诊断用）")
     ap.add_argument("--uri", default=RELAY_WS)
-    args = ap.parse_args()
+    args, ros_args = ap.parse_known_args()
 
-    rclpy.init()
+    rclpy.init(args=ros_args)
     node = QuestAdapter(args.probe, raw=args.raw)
 
     # ⚠️ 线程结构修正（2026-09-27）：原来 rclpy.spin 在 daemon 线程、asyncio.run 在

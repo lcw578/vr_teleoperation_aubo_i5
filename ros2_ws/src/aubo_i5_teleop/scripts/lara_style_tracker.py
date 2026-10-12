@@ -1,29 +1,12 @@
 #!/usr/bin/env python3
-"""lara_style_tracker：LARA 式积分型关节位置跟踪器（路线 B 的执行核心）。
+"""Route B damped differential IK with integrated position commands.
 
-设计出处（2026-09-27 对照审查后选型）：
-  LARA（_refs/LARA_AUBOi5_AG95，已在真机 Aubo i5 验证）的控制语义 =
-  "目标位姿 → 雅可比逆解 → **积分型关节位置命令**（cmd = cmd_prev + J⁺·e·dt）→
-  ros_control position 接口"。我们的对照实验实锤了它对我们执行器的适配性：
-  积分型命令流 10 s 走完 78.4/80 mm（98%）、平滑收敛、无极限环；而
-  Servo 锚定流 + 接口层钳位在同一执行器上极限环（qd 4.84-5.77 rad/s）+ 静差。
-
-替换关系（对 VLA 数据采集目标的适配）：
-  替换掉：pose_tracking_node（PoseTracking PID）+ servo_interface（锚定流转换）
-    ——它们只服务于"消费 Servo 锚定流"，是路线 A 的负担
-  保留：quest_adapter、clutch_mapper（离合/reach limit/缩放）——输入侧全部
-  保留：/forward_command_controller_position/commands（执行接口不变）
-  真机：同一节点，commands 换发厂商驱动接口（积分型关节位置 = servoj 语义）
-
-安全（自建，替代 Servo 内建保护）：
-  · 条件数缩放：cond > 50 线性降速、> 200 停止推进（阈值已与离线指标对齐）
-  · 关节限位：clip ±(3.04 − margin 0.1)
-  · 速度限幅：每周期 |Δ| ≤ v_max·dt（厂商 2.618/3.142）
-  · 目标断流：/target_pose 停 >0.5 s → 冻结 cmd（保持最后位置）
-  · 输入新鲜度：/joint_states 缺失不推进
-
-用法（authoritative_session.sh 的 stage3 之后，替代/停用 clutch_mapper+servo 链）：
-  /home/lcw/tomato_robot/.venv/bin/python scripts/lara_style_tracker.py
+This is a project controller, not the ROS1 LARA implementation. The existing
+IK/posture correction and singularity gains are retained. dt bounds each joint
+increment; the raw correction is not a velocity law multiplied by dt.
+The controller requires a fresh mapper control heartbeat and full arm feedback.
+Release/fault discards old targets; re-engagement starts from measured joints.
+No online collision checking or real hardware validation is claimed.
 """
 import math
 import sys
@@ -34,8 +17,11 @@ import rclpy
 from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import JointState, Joy
-from std_msgs.msg import Float64MultiArray
+from sensor_msgs.msg import JointState
+from std_msgs.msg import Float64MultiArray, String
+import json
+from teleop_geometry import tool_pose
+from robot_parameters import POSITION_LIMIT, VELOCITY_LIMITS, WORKING_LIMIT
 
 try:
     import mujoco
@@ -51,17 +37,16 @@ GRIP = _resolve_gripper()
 MJCF = GRIP["mjcf"]
 GROUP = ["shoulder_joint", "upperArm_joint", "foreArm_joint",
          "wrist1_joint", "wrist2_joint", "wrist3_joint"]
-TIP_OFF = np.array(GRIP["tip_offset"])
 CMD_TOPIC = "/forward_command_controller_position/commands"
 TARGET_TOPIC = "/target_pose"
 
 # ready=Q1 水平前伸（2026-09-29 IK 反解二次定案，与 MJCF keyframe/go_ready 同源）：
 Q_REST = np.array(GRIP["q_rest"])   # ready 位姿随夹爪档（见 gripper_profile.py）
-MU_REST = 0.02              # Tikhonov 刚度（拉向 q_rest，破肘部翻转歧义；上游 mu=0.02）
+MU_REST = 0.02              # Existing additive posture bias, not a null-space term.
 ROT_ERR_HOLD = 2.2          # 反极点 park 门限（rad，>126° 停腕；上游 rot_err_hold=2.2）
-JOINT_LIMIT = 3.04
-MARGIN = 0.1
-VMAX = np.array([2.618, 2.618, 2.618, 3.142, 3.142, 3.142])
+JOINT_LIMIT = POSITION_LIMIT
+MARGIN = POSITION_LIMIT - WORKING_LIMIT  # retain the approved existing working bound
+VMAX = np.array(VELOCITY_LIMITS)
 COND_SOFT = 50.0
 COND_HARD = 200.0
 TARGET_STALE = 0.5          # 秒；超过则冻结
@@ -107,20 +92,32 @@ def R_to_rotvec(R):
 class LaraTracker(Node):
     def __init__(self):
         super().__init__("lara_tracker")
-        self.set_parameters([rclpy.parameter.Parameter("use_sim_time", value=True)])
+        self.declare_parameter("feedback_timeout", 0.2)
+        self.declare_parameter("control_timeout", 0.2)
+        self.declare_parameter("following_lag_seconds", 0.2)
+        self.declare_parameter("following_error_duration", 0.2)
+        self.feedback_timeout = float(self.get_parameter("feedback_timeout").value)
+        self.control_timeout = float(self.get_parameter("control_timeout").value)
+        self.following_limit = VMAX * float(self.get_parameter("following_lag_seconds").value)
+        self.following_duration = float(self.get_parameter("following_error_duration").value)
+        self.js_time = None
+        self.control_time = None
+        self.session = None
+        self.engaged = False
+        self.fault = None
+        self.following_since = None
+        self.pub_status = self.create_publisher(String, "/teleop/tracker_status", 10)
         self.q = {}                       # 关节名 → 位置
         self.js_fresh = False
         self.target = None                # (pos np3, R np3x3)
         self.target_time = 0.0
-        self._was_stale = False           # 断流标记：恢复后首 tick 重锚（上游 needs_reanchor 同款）
-        self._grip_engaged = False        # Grip 电平（从 /quest/joy 读，供重锚判断）
         self.cmd = None                   # 当前积分命令（6,）
-        self.status = None
         qos = fast_qos()
         self.create_subscription(JointState, "/joint_states", self._js, qos)
         self.create_subscription(PoseStamped, TARGET_TOPIC, self._tgt, qos)
         self.pub = self.create_publisher(Float64MultiArray, CMD_TOPIC, 10)
-        self.create_subscription(Joy, "/quest/joy", self._joy, fast_qos())
+        self.create_subscription(JointState, "/teleop/control", self._control, 10)
+        self.pub_stamped = self.create_publisher(JointState, "/teleop/joint_command", 10)
         self.timer = self.create_timer(1.0 / RATE_HZ, self._tick)
         self._n = 0
         self.get_logger().info("lara_tracker 就绪：积分型关节位置命令 → %s | "
@@ -128,54 +125,104 @@ class LaraTracker(Node):
                                % (CMD_TOPIC, COND_SOFT, COND_HARD, TARGET_STALE))
 
     # ---------- 回调 ----------
-    def _js(self, msg):
-        for i, name in enumerate(msg.name):
-            if name in GROUP:
-                self.q[name] = msg.position[i]
-        self.js_fresh = len(self.q) == len(GROUP)
+    @staticmethod
+    def _stamp_ns(stamp):
+        return stamp.sec * 1000000000 + stamp.nanosec
 
-    def _joy(self, msg):
-        if len(msg.buttons) >= 1:
-            self._grip_engaged = bool(msg.buttons[0])
+    def _js(self, msg):
+        values = dict(zip(msg.name, msg.position))
+        if not all(j in values and math.isfinite(values[j]) for j in GROUP):
+            return
+        self.q = {j: values[j] for j in GROUP}
+        self.js_time = time.monotonic()
+        self.js_fresh = True
+
+    def _control(self, msg):
+        session = self._stamp_ns(msg.header.stamp)
+        if self.session is not None and session < self.session:
+            return
+        self.control_time = time.monotonic()
+        if msg.header.frame_id != "engaged":
+            self.engaged = False
+            self.target = None
+            if self._feedback_fresh():
+                self.cmd = self._measured()
+            return
+        if session != self.session:
+            self.target = None
+            self.engaged = False
+            self.session = session
+            self.following_since = None
+            if not self._feedback_fresh():
+                self._fault("feedback_stale_at_engage")
+                return
+            values = dict(zip(msg.name, msg.position))
+            if not all(j in values and math.isfinite(values[j]) for j in GROUP):
+                self._fault("invalid_anchor")
+                return
+            # Exact joint snapshot used by mapper FK, rather than a later sample.
+            self.cmd = np.array([values[j] for j in GROUP])
+            self.fault = None
+            self.engaged = True
+
+    def _feedback_fresh(self):
+        return self.js_time is not None and time.monotonic() - self.js_time < self.feedback_timeout
+
+    def _measured(self):
+        return np.array([self.q[j] for j in GROUP])
+
+    def _fault(self, reason):
+        if self.fault != reason:
+            self.get_logger().warn("停止推进：%s；需要松开并重新接合" % reason)
+        self.fault = reason
+        self.engaged = False
+        self.target = None
+        if self._feedback_fresh():
+            self.cmd = self._measured()
 
     def _tgt(self, msg):
+        if not self.engaged or self.fault or self.session is None:
+            return
+        if self._stamp_ns(msg.header.stamp) < self.session or msg.header.frame_id != "world":
+            return
         p = msg.pose.position
         o = msg.pose.orientation
         if not all(math.isfinite(v) for v in (p.x, p.y, p.z, o.x, o.y, o.z, o.w)):
             return
+        norm = np.linalg.norm([o.x, o.y, o.z, o.w])
+        if norm < 1e-8:
+            return
         self.target = (np.array([p.x, p.y, p.z]),
-                       quat_xyzw_to_R((o.x, o.y, o.z, o.w)))
-        self.target_time = time.time()
+                       quat_xyzw_to_R(np.array([o.x, o.y, o.z, o.w]) / norm))
+        self.target_time = time.monotonic()
 
     # ---------- 每周期 ----------
     def _tick(self):
-        now = time.time()
+        now = time.monotonic()
+        if not self._feedback_fresh():
+            self._fault("feedback_stale")
+            self._publish_status()
+            return  # Do not issue a new command based on stale measurements.
         if self.cmd is None:
-            if self.js_fresh:
-                self.cmd = np.array([self.q[j] for j in GROUP])   # 从当前关节起步
-            return
-        # 目标断流 → 冻结（不再推进；继续发当前 cmd 以保持位置）
-        target_live = self.target is not None and (now - self.target_time) < TARGET_STALE
-        # ── 断流重锚（上游 bi_quest_teleop needs_reanchor 同款）：断流发生后，
-        # 若操作者仍握 Grip，恢复的首 tick 把 cmd 重置为实测关节——engage 增量
-        # 从零开始，杜绝"断流积压→恢复后猛冲"（2026-09-26 卡死教训）。
-        if not target_live and self._grip_engaged and not self._was_stale:
-            self._was_stale = True
-            self.get_logger().warn("目标断流——冻结；恢复且 Grip 仍按住时将重锚")
-        if target_live and self._was_stale:
-            self._was_stale = False
-            if self._grip_engaged and self.js_fresh:
-                # 断流恢复且 Grip 仍按住：cmd 重锚到实测关节（engage 增量从零开始）
-                self.cmd = np.array([self.q[j] for j in GROUP])
-                self.get_logger().info("断流恢复且 Grip 仍按住——cmd 重锚到实测关节")
-
-        if target_live and self.js_fresh:
+            self.cmd = self._measured()
+        if self.engaged and (self.control_time is None or now - self.control_time > self.control_timeout):
+            self._fault("control_stale")
+        target_live = self.target is not None and now - self.target_time < TARGET_STALE
+        if self.engaged and self.target is not None and not target_live:
+            self._fault("target_stale")
+        if self.engaged and np.any(np.abs(self.cmd - self._measured()) > self.following_limit):
+            if self.following_since is None:
+                self.following_since = now
+            elif now - self.following_since >= self.following_duration:
+                self._fault("following_error")
+        else:
+            self.following_since = None
+        if target_live and self.engaged and not self.fault:
             # FK + Jacobian（在 cmd 命令轨迹上做微分运动——不是实测 q）
             for a, v in zip(_qadr, self.cmd):
                 _mj_data.qpos[a] = v
             mujoco.mj_forward(_mj_model, _mj_data)
-            R_c = _mj_data.xmat[_bid].reshape(3, 3).copy()
-            p_c = _mj_data.xpos[_bid] + R_c @ TIP_OFF
+            p_c, R_c = tool_pose(_mj_model, _mj_data, _bid, GRIP)
             p_t, R_t = self.target
             e = np.concatenate([p_t - p_c, R_to_rotvec(R_t @ R_c.T)])
             e_pos = float(np.linalg.norm(e[:3]))
@@ -213,13 +260,28 @@ class LaraTracker(Node):
                 dq = np.clip(dq, -VMAX * dt, VMAX * dt)
                 self.cmd = np.clip(self.cmd + dq,
                                    -(JOINT_LIMIT - MARGIN), JOINT_LIMIT - MARGIN)
+        # Publish the exact outgoing command with the same ROS timestamp.
+        stamped = JointState()
+        stamped.header.stamp = self.get_clock().now().to_msg()
+        stamped.header.frame_id = "world"
+        stamped.name = GROUP
+        stamped.position = self.cmd.tolist()
+        self.pub_stamped.publish(stamped)
         self.pub.publish(Float64MultiArray(data=self.cmd.tolist()))
+        self._publish_status()
         self._n += 1
         if self._n % (int(RATE_HZ) * 10) == 0:
-            names = {0: "无警告", 1: "奇异降速", 3: "碰撞降速", 4: "碰撞急停", 5: "关节到界"}
-            st = names.get(self.status, self.status) if self.status is not None else "未知"
             self.get_logger().info("cmd=[%.2f %.2f %.2f %.2f %.2f %.2f] target_live=%s"
                                    % (*self.cmd, target_live))
+
+    def _publish_status(self):
+        self.pub_status.publish(String(data=json.dumps({
+            "stamp_ns": self.get_clock().now().nanoseconds,
+            "engaged": self.engaged, "fault": self.fault,
+            "feedback_fresh": self._feedback_fresh(),
+            "session": self.session,
+            "following_error": (np.abs(self.cmd - self._measured()).tolist()
+                if self.cmd is not None and self.q else None)})))
 
 
 def main():

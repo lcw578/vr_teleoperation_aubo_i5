@@ -1,0 +1,7 @@
+<mujoco model="aubo_i5_rg_cameras">
+  <include file="scene_ros2_rg.xml"/>
+  <worldbody>
+    <camera name="d435_right" pos="0.40 -0.30 0.25" xyaxes="-0.7071 0.7071 0.0000 -0.3523 -0.3523 0.8671" fovy="42.6"/>
+    <camera name="d435_left" pos="-0.40 -0.30 0.25" xyaxes="-0.7071 -0.7071 0.0000 0.3523 -0.3523 0.8671" fovy="42.6"/>
+  </worldbody>
+</mujoco>

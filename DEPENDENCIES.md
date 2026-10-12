@@ -100,3 +100,14 @@ colcon build --packages-up-to aubo_i5_teleop \
 `python3 scripts/pose_target_test.py --verify-translations`（或 `--verify-rotations`）。
 
 未完成：接 VR 手柄（`_refs/oculus_reader` 的 ADB 链路；其 `pose_teleop.py` 的离合器按键语义是反的，建议改成"按住才动"）。
+
+## 独立 MuJoCo 遥操（2026-10-12）
+
+`third_party/vr-teleop-kit` 是随仓库保存的小型 Apache-2.0 源码快照，固定提交
+`8d37f3d6bd44c8ce646f7bc110ac98e802e0ab57`；为避免依赖忽略的 `_refs` 目录，
+在此显式入库。局部改动见该目录的 `LOCAL_CHANGES.md`。启动脚本优先加载这份源码，
+不安装或修改现有 Python 环境。新环境依赖见根目录 `requirements-mujoco.txt`。
+
+已测 Python 3.10.12、MuJoCo 3.12.0、numpy 2.2.6、websockets 16.1.1、
+FastAPI 0.141.1、uvicorn 0.54.0、aiortc 1.15.0、av 17.1.0、OpenCV 5.0.0.93、
+PyYAML 6.0.3。MuJoCo 版本固定，其余依赖使用上游范围；未声称所有范围版本已测试。

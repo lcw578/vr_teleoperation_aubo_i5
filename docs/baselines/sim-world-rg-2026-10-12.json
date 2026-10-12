@@ -1,0 +1,266 @@
+{
+  "baseline_id": "sim-world-rg-2026-10-12",
+  "date": "2026-10-12",
+  "status": "provisionally_fixed_user_accepted",
+  "base_git_head": "afb46728275a3521487d2fccb849da5a64775a79",
+  "working_tree_snapshot": true,
+  "not_a_commit_or_full_archive": true,
+  "acceptance": {
+    "user_accepted": [
+      "kinematic",
+      "world",
+      "rg",
+      "upright_ready",
+      "comfortable_quest_operation"
+    ],
+    "not_claimed": [
+      "tool_local_user_acceptance",
+      "long_duration_wireless_reliability",
+      "hardware",
+      "physical_grasping",
+      "lerobot_dataset"
+    ]
+  },
+  "launch": "bash scripts/run_mujoco_teleop.sh --backend kinematic --rotation world --gripper rg",
+  "upstream": {
+    "repository": "https://github.com/Dream-Machines-Robotics/vr-teleop-kit",
+    "commit": "8d37f3d6bd44c8ce646f7bc110ac98e802e0ab57",
+    "license": "Apache-2.0",
+    "local_changes": "See LOCAL_CHANGES.md; original algorithm retained."
+  },
+  "runtime": {
+    "python_executable": "/home/lcw/tomato_robot/.venv/bin/python",
+    "python_version": "3.10.12",
+    "packages": {
+      "mujoco": "3.12.0",
+      "numpy": "2.2.6",
+      "PyYAML": "6.0.3",
+      "websockets": "16.1.1",
+      "fastapi": "0.141.1",
+      "uvicorn": "0.54.0",
+      "aiortc": "1.15.0",
+      "av": "17.1.0",
+      "opencv-python": "5.0.0.93"
+    }
+  },
+  "config_scope": "Fresh process defaults before browser config_update. Accepted-session browser settings and wrist calibration not captured.",
+  "browser_session_snapshot": null,
+  "teleoperator_startup_defaults": {
+    "id": "aubo-i5-mujoco",
+    "active_hands": [
+      "right"
+    ],
+    "rotation_mode": "world",
+    "head_yaw_alignment": false,
+    "binary_gripper": true,
+    "velocity_limits": [
+      2.6179938779914944,
+      2.6179938779914944,
+      2.6179938779914944,
+      3.141592653589793,
+      3.141592653589793,
+      3.141592653589793
+    ],
+    "control_dt": 0.005,
+    "ws_url": "ws://127.0.0.1:8443/ws",
+    "publish_ik_state": false,
+    "connect_timeout_s": 5.0,
+    "urdf_path": "",
+    "r_calib": [
+      [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ]
+    ],
+    "rest_qpos_left": [
+      0.0,
+      1.5707963267948966,
+      1.5707963267948966,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "rest_qpos_right": [
+      -1.137355,
+      -0.4,
+      1.1707963267948966,
+      1.5707959803847207,
+      1.137355,
+      0.0
+    ],
+    "lam": 0.05,
+    "lam0": 0.15,
+    "w0": 0.05,
+    "mu": 0.02,
+    "lam_rot": 0.05,
+    "lam0_rot": 0.4,
+    "w0_rot": 0.5,
+    "rot_reach_limit": 0.6,
+    "pos_reach_limit": 0.25,
+    "rot_err_hold": 2.2,
+    "scale_translation": 1.5,
+    "scale_rotation": 1.5,
+    "precision_factor": 0.5,
+    "pose_filter_alpha": 0.8,
+    "max_dq_per_joint": [
+      0.013089969389957472,
+      0.013089969389957472,
+      0.013089969389957472,
+      0.015707963267948967,
+      0.015707963267948967,
+      0.015707963267948967
+    ],
+    "max_dq_per_joint_scalar_pos": 0.013089969389957472,
+    "max_dq_per_joint_scalar_rot": 0.015707963267948967,
+    "force_haptic_threshold_nm_left": 0.35,
+    "force_haptic_threshold_nm_right": 0.35,
+    "force_haptic_max_nm": 1.0,
+    "force_haptic_velocity_comp_nm": 0.5,
+    "force_haptic_enabled": false,
+    "rest_ramp_duration_s": 2.0
+  },
+  "backend": "kinematic",
+  "control_dt": 0.005,
+  "reference_acceleration": null,
+  "robot_spec": {
+    "source": "AUBO-i5 & CB4 user manual V4.5.11, 2021-05-19, p29 / Appendix E pVI",
+    "applicability": "i5 / CB4 simulation; actual cabinet and safety settings not yet verified",
+    "position_limit_rad": 3.0543261909900767,
+    "velocity_limits_rad_s": [
+      2.6179938779914944,
+      2.6179938779914944,
+      2.6179938779914944,
+      3.141592653589793,
+      3.141592653589793,
+      3.141592653589793
+    ],
+    "working_limit_rad": 2.94
+  },
+  "joint_order": [
+    "shoulder_joint",
+    "upperArm_joint",
+    "foreArm_joint",
+    "wrist1_joint",
+    "wrist2_joint",
+    "wrist3_joint"
+  ],
+  "effective_profile": {
+    "mjcf": "/home/lcw/VR_teleoperation/assets/aubo_i5/scene_ros2_rg_cameras.xml",
+    "ee_body": "rg_base",
+    "tip_offset": [
+      0.0,
+      0.0,
+      -0.1048
+    ],
+    "tool_quat": [
+      0.0,
+      1.0,
+      0.0,
+      0.0
+    ],
+    "open": -0.474409,
+    "close": 0.463234,
+    "grasp_joint": "rg_gear_joint",
+    "tip_link": "rg_tip_link",
+    "q_rest": [
+      -1.137355,
+      -0.4,
+      1.1707963267948966,
+      1.5707959803847207,
+      1.137355,
+      0.0
+    ],
+    "desc": "自研齿条夹爪（整机模型提取，论文 JFR2026）",
+    "name": "rg"
+  },
+  "ready_joint_positions_rad": [
+    -1.137355,
+    -0.4,
+    1.1707963267948966,
+    1.5707959803847207,
+    1.137355,
+    0.0
+  ],
+  "tool_position_base_m": [
+    0.1143844211817197,
+    -0.7862014174258203,
+    0.6002928070370946
+  ],
+  "tool_orientation_wxyz": [
+    0.49999995777870526,
+    0.5000001149667886,
+    -0.5000000422212788,
+    0.49999988503319603
+  ],
+  "wrist3_margin_degrees": [
+    168.44959176846203,
+    168.44959176846203
+  ],
+  "initial_model_contacts": 0,
+  "cameras": [
+    {
+      "name": "d435_right",
+      "body": "world",
+      "local_position": [
+        0.4,
+        -0.3,
+        0.25
+      ],
+      "local_quaternion_wxyz": [
+        0.3312151386993135,
+        0.19168500542066602,
+        0.46276853979013216,
+        0.7996240799111684
+      ],
+      "fovy_degrees": 42.6
+    },
+    {
+      "name": "d435_left",
+      "body": "world",
+      "local_position": [
+        -0.4,
+        -0.3,
+        0.25
+      ],
+      "local_quaternion_wxyz": [
+        -0.3312151386993135,
+        -0.19168500542066602,
+        0.46276853979013216,
+        0.7996240799111684
+      ],
+      "fovy_degrees": 42.6
+    },
+    {
+      "name": "cam_wrist_d405",
+      "body": "rg_base",
+      "local_position": [
+        0.106042,
+        -0.001376,
+        0.025985
+      ],
+      "local_quaternion_wxyz": [
+        0.707108781168958,
+        5.999998143162862e-06,
+        -1.9999993810542873e-06,
+        -0.7071047811701958
+      ],
+      "fovy_degrees": 58.0
+    }
+  ],
+  "recorder_default": false,
+  "images_recorded_default": false,
+  "web_camera_streaming_default": false,
+  "raw_state_source": "kinematic_preview",
+  "validation": "26 regression tests passed in previous implementation turn; doc/snapshot-only work in this turn"
+}

@@ -113,8 +113,8 @@ class MockVR(Node):
         self._prev_z = False
         self._script = self._load(script) if script else None
         self._fired = set()                         # 脚本一次性事件已触发集合
-        self._t0 = time.time()
-        self._last = time.time()
+        self._t0 = time.monotonic()
+        self._last = time.monotonic()
         self._n = 0
         self._session_state = None                 # 会话状态（session_manager 发布）
         if self._script is None:
@@ -199,7 +199,7 @@ class MockVR(Node):
 
     # ---------- 每 tick ----------
     def _tick(self):
-        now = time.time()
+        now = time.monotonic()
         dt = min(0.05, now - self._last)     # 防调试暂停后的大步长
         self._last = now
         el = now - self._t0
@@ -256,11 +256,15 @@ class MockVR(Node):
         ps.pose.orientation.y, ps.pose.orientation.z = self.q[2], self.q[3]
         self.pub_pose.publish(ps)
         joy = Joy()
+        joy.header.stamp = ps.header.stamp
+        joy.header.frame_id = FRAME
         joy.buttons = [clutch,
                        1 if self._pulse_grip else 0,
                        1 if self._pulse_scale else 0,
                        1 if self._pulse_pause else 0,
                        1 if self._pulse_stop else 0]
+        # Same analog contract as Quest: FSM detects Trigger axis[0] edges.
+        joy.axes = [float(self._pulse_grip), float(clutch)]
         self.pub_joy.publish(joy)
         self._pulse_grip = False        # 脉冲只保持一个 tick
         self._pulse_scale = False
@@ -277,8 +281,8 @@ def main():
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument("--script", default=None, help="回放脚本（不给则键盘模式）")
-    args = ap.parse_args()
-    rclpy.init()
+    args, ros_args = ap.parse_known_args()
+    rclpy.init(args=ros_args)
     node = MockVR(args.script)
     try:
         rclpy.spin(node)

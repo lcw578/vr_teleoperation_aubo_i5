@@ -3,20 +3,11 @@
 # 便捷入口：`bash 本文件` 也能跑——sh 把下一行解析为 source ROS 后 exec 进 venv
 # Python；Python 把它解析为无操作字符串。（与 direction_check.py 同款）
 ''''exec /bin/bash -c ". /opt/ros/humble/setup.bash 2>/dev/null || :; exec /home/lcw/tomato_robot/.venv/bin/python -- \"\$0\" \"\$@\"" "$0" "$@" # '''
-"""旋转自检：端到端验证"手柄旋转 → 末端旋转"的世界轴语义（2026-09-28 定案）。
-
-与 direction_check.py 的区别：那个验平移（不按 Grip、纯观察）；本脚本验**旋转**，
-必须真实接合（臂会动）。判据来自 2026-09-28 的轴交叉缺陷：
-  旧语义（工具系再表达）下手柄 pitch 出末端 roll、随接合姿态漂移；
-  新语义（世界轴）下：手柄绕哪根世界轴转 θ → 末端绕同一根世界轴转 θ×缩放。
-脚本对手柄与末端各算"世界系旋转增量"（四元数），比对旋转轴（dot→1）与角度比
-（→缩放档位）。**与接合姿态无关**是本语义的核心性质——换一个臂姿态重跑一遍，
-结果应不变（这是回归测试的关键步骤）。
-
-用法（戴头显、页面 Start Teleop 已开、遥操链在跑）：
-  bash scripts/rotation_check.py
-  每步提示：按住 Grip 接合 → 静止 1 s → 慢转 ~20° → 停住 2 s → 松开 Grip。
-全程只订阅不发布；Ctrl-C 退出。
+"""Passive Quest tool-axis rotation diagnostic. Operate slowly around each
+controller local axis, stop, then release. Compares controller local increments
+mapped by the proper controller-to-tool rotation against measured tool local
+increments. Repeat at different hand and tool starting orientations. This
+checks single-axis gestures; compound paths are covered by offline tests.
 """
 import math
 import sys
@@ -26,6 +17,7 @@ import numpy as np
 import rclpy
 import mujoco
 from geometry_msgs.msg import PoseStamped
+from teleop_geometry import QUEST_LOCAL_TO_TOOL, tool_pose
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState, Joy
@@ -51,9 +43,9 @@ AXIS_DOT_PASS = 0.80        # 旋转轴平行判据
 RATIO_LO, RATIO_HI = 0.30, 0.75   # 角度比（quest 默认缩放 0.5）
 
 STAGES = [
-    ("【1/3】按住 Grip → 静止 1 s → 手柄绕竖直轴慢慢转 ~20°（像摇头）→ 停住 2 s → 松开",
+    ("【1/3】按住 Grip → 静止 1 s → 手柄绕自身局部上下轴慢慢转 ~20°（像摇头）→ 停住 2 s → 松开",
      "yaw"),
-    ("【2/3】按住 Grip → 静止 1 s → 手柄绕水平左右轴慢慢俯仰 ~20°（像点头）→ 停住 2 s → 松开",
+    ("【2/3】按住 Grip → 静止 1 s → 手柄绕自身局部左右轴慢慢俯仰 ~20°（像点头）→ 停住 2 s → 松开",
      "pitch"),
     ("【3/3】按住 Grip → 静止 1 s → 手柄绕自身前轴慢慢滚转 ~20°（像拧钥匙）→ 停住 2 s → 松开",
      "roll"),
@@ -114,12 +106,12 @@ class RotCheck(Node):
     def _pose(self, msg):
         o = msg.pose.orientation
         self.hand_q = np.array([o.w, o.x, o.y, o.z])
-        self.hand_t = time.time()
+        self.hand_t = time.monotonic()
 
     def _joy(self, msg):
         if len(msg.buttons) >= 1:
             self.grip = int(msg.buttons[0])
-            self.joy_t = time.time()
+            self.joy_t = time.monotonic()
 
     def _js(self, msg):
         q = {}
@@ -131,41 +123,42 @@ class RotCheck(Node):
                 _mj_data.qpos[a] = q[j]
             mujoco.mj_forward(_mj_model, _mj_data)
             qw = np.zeros(4)
-            R = _mj_data.xmat[_mj_bid].reshape(3, 3)
+            _, R = tool_pose(_mj_model, _mj_data, _mj_bid, GRIP)
             mujoco.mju_mat2Quat(qw, np.ascontiguousarray(R).flatten())
             self.ee_q = qw
-            self.ee_t = time.time()
+            self.ee_t = time.monotonic()
 
 
 def fresh(node, which, max_age=0.5):
     t = node.hand_t if which == "hand" else node.ee_t
     v = node.hand_q if which == "hand" else node.ee_q
-    return v is not None and time.time() - t < max_age
+    return v is not None and time.monotonic() - t < max_age
 
 
 def wait_grip(node, want, timeout):
-    t0 = time.time()
-    while time.time() - t0 < timeout:
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < timeout:
         rclpy.spin_once(node, timeout_sec=0.02)
-        if node.grip == want and time.time() - node.joy_t < 0.5:
+        if node.grip == want and time.monotonic() - node.joy_t < 0.5:
             return True
     return False
 
 
 def settled(delta_deg_now, delta_deg_hist, eps_deg, win_s):
     """delta_deg_hist: list of (t, deg)。近 win_s 内变化 < eps_deg 即静止。"""
-    now = time.time()
+    now = time.monotonic()
     recent = [d for t, d in delta_deg_hist if now - t <= win_s]
-    return recent and (max(recent) - min(recent)) < eps_deg
+    return (recent and delta_deg_hist[-1][0] - delta_deg_hist[0][0] >= win_s
+            and (max(recent) - min(recent)) < eps_deg)
 
 
 def run_stage(node, hint):
     print("\n%s" % hint)
     # ── 等接合 ──
-    t0 = time.time()
+    t0 = time.monotonic()
     while not (node.grip == 1 and fresh(node, "hand") and fresh(node, "ee")):
         rclpy.spin_once(node, timeout_sec=0.02)
-        if time.time() - t0 > STAGE_TIMEOUT:
+        if time.monotonic() - t0 > STAGE_TIMEOUT:
             print("   ❌ 等待接合超时（Grip 是否按住？数据是否新鲜？）")
             return None
     q_h0 = node.hand_q.copy()
@@ -175,15 +168,15 @@ def run_stage(node, hint):
     q_h0 = node.hand_q.copy()
     q_e0 = node.ee_q.copy()
     # ── 等动作：手柄世界增量 ──
-    t0 = time.time()
+    t0 = time.monotonic()
     hist = []
-    while time.time() - t0 < STAGE_TIMEOUT:
+    while time.monotonic() - t0 < STAGE_TIMEOUT:
         rclpy.spin_once(node, timeout_sec=0.02)
         if not fresh(node, "hand"):
             continue
-        d = quat_wxyz_rotvec(quat_wxyz_mul(node.hand_q, quat_wxyz_conj(q_h0)))
+        d = quat_wxyz_rotvec(quat_wxyz_mul(quat_wxyz_conj(q_h0), node.hand_q))
         deg = float(np.degrees(np.linalg.norm(d)))
-        hist.append((time.time(), deg))
+        hist.append((time.monotonic(), deg))
         if deg > GESTURE_START_DEG and settled(deg, hist, HAND_SETTLE_DEG, HAND_SETTLE_S):
             break
     else:
@@ -191,16 +184,16 @@ def run_stage(node, hint):
         return None
     d_h = d.copy()
     # ── 等末端收敛（手保持不动，等跟踪到位）──
-    t0 = time.time()
+    t0 = time.monotonic()
     hist_e = []
     d_e = None
-    while time.time() - t0 < 10.0:
+    while time.monotonic() - t0 < 10.0:
         rclpy.spin_once(node, timeout_sec=0.02)
         if not fresh(node, "ee") or not fresh(node, "hand"):
             continue
-        d = quat_wxyz_rotvec(quat_wxyz_mul(node.ee_q, quat_wxyz_conj(q_e0)))
+        d = quat_wxyz_rotvec(quat_wxyz_mul(quat_wxyz_conj(q_e0), node.ee_q))
         deg = float(np.degrees(np.linalg.norm(d)))
-        hist_e.append((time.time(), deg))
+        hist_e.append((time.monotonic(), deg))
         d_e = d.copy()
         if settled(deg, hist_e, EE_SETTLE_DEG, EE_SETTLE_S):
             break
@@ -209,21 +202,21 @@ def run_stage(node, hint):
         return None
     # ── 等松开 ──
     wait_grip(node, 0, 15.0)
-    return d_h, d_e
+    return QUEST_LOCAL_TO_TOOL @ d_h, d_e
 
 
 def main():
     rclpy.init()
     node = RotCheck()
     print("=" * 68)
-    print("旋转自检（世界轴语义：手柄绕哪根世界轴转 → 末端绕同一根轴转×缩放）")
+    print("旋转自检（手柄局部轴 → 当前工具局部轴 × 缩放）")
     print("注意：臂会真实跟随！动作要慢要小（~20°）。与接合姿态无关——")
     print("换一个臂姿态再跑一遍，结果应完全一致（本语义的回归判据）。")
     print("=" * 68)
-    t0 = time.time()
+    t0 = time.monotonic()
     while not (fresh(node, "hand") and fresh(node, "ee")):
         rclpy.spin_once(node, timeout_sec=0.05)
-        if time.time() - t0 > 15:
+        if time.monotonic() - t0 > 15:
             print("❌ 没有手柄/关节数据——quest_adapter、遥操链是否在跑？")
             return 1
     print("数据正常。三步都会真实驱动机械臂。\n")

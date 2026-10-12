@@ -1,0 +1,4 @@
+# Run from the repository root; existing TELEOP_PYTHON already has these.
+mujoco==3.12.0
+PyYAML>=6.0
+-e ./third_party/vr-teleop-kit[relay]

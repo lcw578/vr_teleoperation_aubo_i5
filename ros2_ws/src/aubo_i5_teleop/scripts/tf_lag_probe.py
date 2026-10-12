@@ -31,7 +31,6 @@ def fast_qos():
 class Probe(Node):
     def __init__(self, publish_rate):
         super().__init__("tf_lag_probe")
-        self.set_parameters([rclpy.parameter.Parameter("use_sim_time", value=True)])
         self.js_arrival = {}
         self.tf_arrival = {}
         self.publish_rate = publish_rate

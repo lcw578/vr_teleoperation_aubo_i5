@@ -79,7 +79,7 @@ class ScenePublisher(Node):
 
     def build(self, obj_id, dims, center_x, center_y, center_z):
         obj = CollisionObject()
-        obj.header.frame_id = "world"     # 与 servo_pose_tracking.yaml 的 planning_frame 一致
+        obj.header.frame_id = "world"     # 与 Route B 的 world frame 一致
         obj.id = obj_id
         prim = SolidPrimitive()
         prim.type = SolidPrimitive.BOX

@@ -96,14 +96,6 @@ def launch_setup(context, *args, **kwargs):
         "robot_description": ParameterValue(robot_description_content, value_type=str)
     }
 
-    # ⚠️ 2026-09-24 试过再否决：曾把位置环交给 mujoco_ros2_control 的内置 PID
-    #   （config/mujoco_pid.yaml）。它的误差是 `command − measured`，而 Servo 的
-    #   command = measured + Δ → **error ≡ Δ**，与被控对象实际位置无关：
-    #   静止时输出 0（没有保持力矩、漂到哪都看不见），运动时积分持续累积。
-    #   实机实测 wrist3 归位残差 13.6→24.5 mrad（不可重复），而位置执行器+伺服接口层是 0.00000。
-    #   所以位置环由"伺服接口层（scripts/servo_interface.py）+ <position> 执行器"承担。
-    #   mujoco_pid.yaml 与 scripts/pid_gain_calib.py 保留备查，不在链路上。
-
     # mujoco_ros2_control 自带的节点（不是 controller_manager 的标准 ros2_control_node）
     control_node = Node(
         package="mujoco_ros2_control",
@@ -111,7 +103,7 @@ def launch_setup(context, *args, **kwargs):
         output="both",
         parameters=[
             robot_description,
-            {"use_sim_time": True},
+            {"use_sim_time": ParameterValue(LaunchConfiguration("use_sim_time"), value_type=bool)},
             controllers_file,
         ],
     )
@@ -122,7 +114,7 @@ def launch_setup(context, *args, **kwargs):
         output="both",
         parameters=[
             robot_description,
-            {"use_sim_time": True},
+            {"use_sim_time": ParameterValue(LaunchConfiguration("use_sim_time"), value_type=bool)},
             # ⚠️ 测量仪器问题：RSP 的 publish_frequency 默认 20 Hz，于是 /tf 只有 ~18.5 Hz
             #    （54 ms 一个样本）。而阶跃响应测量是**读 TF** 的，所以 0.1-0.15 s 量级的
             #    "延迟"里有相当部分是采样分辨率。提到 200 Hz 让仪器不再成为瓶颈。
@@ -165,7 +157,7 @@ def launch_setup(context, *args, **kwargs):
     # 所以两个都 spawn 只会让后激活的覆盖前者，行为不可预期。
     # 选哪个由 arm_control_mode 参数决定；速度模式还需配套
     #   mujoco_model:=.../scene_ros2_velocity.xml
-    # 且 stage3 用 output_mode:=velocity。
+    # 该模式不属于正式路线 B。
     arm_control_mode = LaunchConfiguration("arm_control_mode").perform(context).lower()
     arm_controller = ("forward_command_controller_velocity" if arm_control_mode == "velocity"
                       else "forward_command_controller_position")
@@ -199,7 +191,7 @@ def launch_setup(context, *args, **kwargs):
         jsb_spawner,
         # 注意：这里刻意**不启动 JTC**。JTC 与 forward_command_controller_position
         # 争夺同一个命令接口（shoulder_joint/position），只能二选一。
-        # Servo 是高频流式位置命令，需要 forward_command_controller；
+        # Route B 使用高频位置命令，需要 forward_command_controller；
         # 代价是 MoveIt 的 action 式轨迹执行（FollowJointTrajectory）暂时不可用。
         RegisterEventHandler(
             event_handler=OnProcessExit(
@@ -219,6 +211,7 @@ def launch_setup(context, *args, **kwargs):
 def generate_launch_description():
     return LaunchDescription(
         [
+            DeclareLaunchArgument("use_sim_time", default_value="true"),
             DeclareLaunchArgument(
                 "mujoco_model",
                 default_value=MODEL_AG95,
@@ -226,9 +219,9 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 "gripper",
-                default_value="ag95",
+                default_value="rg",
                 choices=["ag95", "rg"],
-                description="夹爪档：ag95（基线）/ rg（自研齿条夹爪，scene_ros2_rg.xml "
+                description="夹爪档：ag95（可选）/ rg（默认自研齿条夹爪，scene_ros2_rg.xml "
                             "+ controllers_rg.yaml）。切换时节点侧需同步 export "
                             "TELEOP_GRIPPER=rg（authoritative_session.sh 已代劳）。",
             ),
@@ -236,12 +229,11 @@ def generate_launch_description():
                 "arm_control_mode",
                 default_value="position",
                 choices=["position", "velocity"],
-                description="臂的控制器类型：position（默认，2026-09-24 改回）或 velocity。"
-                            "为什么是 position：本款机械臂不支持速度控制（厂家驱动的速度命令接口是死壳，"
-                            "write() 只调位置型 Servoj），位置模式是与真机一致的唯一路线。"
-                            "三处必须一致：本参数、mujoco_model、以及 stage3 的 output_mode。"
+                description="正式路线 B 使用 position。当前固定版本官方驱动 write() 调用位置型 Servoj；"
+                            "其 velocity 命令接口未实现发送路径，这不代表全部 AUBO SDK 都不支持速度控制。"
+                            "三处必须一致：本参数、mujoco_model、被激活的控制器。"
                             "切到速度模式（仅作对照，非默认）：arm_control_mode:=velocity "
-                            "mujoco_model:=…/scene_ros2_velocity.xml，且 stage3 用 output_mode:=velocity。",
+                            "mujoco_model:=…/scene_ros2_velocity.xml，该模式不属于正式路线 B。",
             ),
             DeclareLaunchArgument(
                 "headless",

@@ -1,37 +1,10 @@
-"""ClutchPoseMapper —— 离合相对位姿映射（VR 手柄 → 末端目标）。
+"""Route B clutch mapping. Translation uses base axes; rotation uses tool axes.
 
-出处与边界（重要）：
-  移植自 _refs/vr-teleop-kit（Dream-Machines-Robotics/vr-teleop-kit）的
-  src/vr_teleop_kit/core/pose_mapping.py（2026-09-25 移植时 11 项上游 sanity
-  测试在本机 mujoco 3.12.0 全部通过）。类体数学**未改**，只做了两处已批准的
-  适配（见下）。内部四元数约定 [w,x,y,z]（mujoco 原生）——ROS 边界的
-  (x,y,z,w) 转换放在 clutch_mapper_node，配往返测试，**不要改这里的约定**
-  （本项目曾因 mju_* 的 wxyz 约定栽过跟头，见 BASELINE.md §4）。
-
-两处适配（相对上游的差异）：
-  1. **平移/旋转双 R 分离**：上游用一个 R（quest→armbase）同时变换平移与旋转。
-     我们的键盘 Mock 平移在世界系（W=向任务区），旋转在手柄自系——所以
-     平移用 `R_trans`（默认恒等；真 VR 时可在接合时设成 yaw 修正）。
-  2. ~~接合时轴对齐 R_align~~（2026-09-28 已撤销）：移植时曾把旋转增量经
-     R_align 重表达进"接合时刻工具系"（省球腕行程）。实锤的代价：轴对应
-     随接合姿态漂移——手柄 pitch 出末端 roll 的轴交叉（用户头显欧拉辨识，
-     2026-09-28），数值复现精确命中。现**回归上游世界轴语义**：旋转增量
-     不经任何系变换直接作用于目标（本链路 adapter 已把位姿旋进臂基座系，
-     与上游"固定 R 共轭"数学等价）。手柄绕哪根世界轴转 θ，末端目标就绕
-     同一根世界轴转 θ，与接合姿态无关。
-
-上游原有机制原样保留：
-  · 离合状态机：engage 捕获（手柄+末端）锚点 / disengage 后 target() 返回 None
-    （调用方停发 /target_pose → Servo 走完最后目标 → 冻结，即实测的断流安全行为）。
-  · 滑移 reach limit：目标被钳在末端**当前**位姿的 rot 0.6 rad / pos 0.25 m 内，
-    超出部分被吸收（反向立即生效）——防"180° 误差处最短路翻转抖振"与"超程
-    bang-bang"两个真机失败模式。
-  · 逐 tick 增量累积 + 半球对齐（q 与 −q）；scale/scale_rotation 为逐 tick 增益
-    （切档天然连续）；rotation_pivot 支撑绕支点旋转（当前未用）。
-
-脱离状态纪律：target() 每 tick 恰好调一次（内部状态演进）；未接合时调用无副作用。
+Quaternions are wxyz. Controller local increments are conjugated by a proper
+controller-to-tool rotation, then right-multiplied onto the tool target.
+Reach limits absorb excess motion; releasing and re-engaging uses measured FK.
+Derived from vr-teleop-kit; the local rotation semantics are project-specific.
 """
-
 from __future__ import annotations
 
 import mujoco
@@ -128,7 +101,13 @@ class ClutchPoseMapper:
 
     def __init__(self, R_trans=None, scale: float = 1.0, scale_rotation: float = 1.0,
                  rotation_pivot=None, rot_reach_limit: float | None = 0.6,
-                 pos_reach_limit: float | None = 0.25):
+                 pos_reach_limit: float | None = 0.25,
+                 controller_to_tool=None):
+        self.controller_to_tool = (np.eye(3) if controller_to_tool is None
+                                   else np.asarray(controller_to_tool, float).copy())
+        C = self.controller_to_tool
+        if not (np.allclose(C.T @ C, np.eye(3)) and np.isclose(np.linalg.det(C), 1.0)):
+            raise ValueError("controller_to_tool must be a proper rotation")
         self.R_trans = np.eye(3) if R_trans is None else np.asarray(R_trans, float).copy()
         self.scale = float(scale)
         self.scale_rotation = float(scale_rotation)
@@ -140,7 +119,7 @@ class ClutchPoseMapper:
         self._ctrl_engage_quat = None
         self._ee_engage_pos = None
         self._ee_engage_quat = None
-        # 旋转轴对齐（2026-09-28 撤销：R_align 工具系再表达导致轴交叉，见文件头）
+        # Controller local axes are mapped by a proper fixed rotation.
         # 增量累积状态（每次接合重置）
         self._ctrl_prev_quat = None
         self._ctrl_prev_pos = None
@@ -200,35 +179,24 @@ class ClutchPoseMapper:
             d_pos_arm = self.R_trans @ (self.scale * (p_now - self._ctrl_engage_pos))
         self._ctrl_prev_pos = p_now.copy()
 
-        # ---- 旋转：增量路径逐 tick 累积（增量小、方向无歧义；半球对齐）----
-        # 2026-09-28 回归上游世界轴语义：inc 已是臂基座系（世界）旋转增量，
-        # 直接作用于目标。手柄绕哪根世界轴转 θ → 末端目标绕同一根轴转 θ，
-        # 与接合姿态无关（工具系再表达的轴交叉缺陷见文件头）。
+        # A left multiplication in the adapter changes the world frame only;
+        # inverse(previous) * now cancels it and retains controller local axes.
         q_now = np.asarray(controller_quat, float)
+        q_now = q_now / np.linalg.norm(q_now)
         rot_limited = ee_quat is not None and bool(self.rot_reach_limit)
-        if rot_limited:
-            assert self._ctrl_prev_quat is not None
-            if float(np.dot(q_now, self._ctrl_prev_quat)) < 0.0:
-                q_now = -q_now  # 半球对齐：q 与 −q 是同一旋转
-            inc = quat_mul(q_now, quat_conj(self._ctrl_prev_quat))
-            self._ctrl_prev_quat = q_now.copy()
-            if self.scale_rotation != 1.0:
-                inc = quat_pow(inc, self.scale_rotation)
-            d_quat_arm = quat_mul(inc, self._d_quat_eff)
-            d_quat_arm /= np.linalg.norm(d_quat_arm)
-            self._d_quat_eff = d_quat_arm
-        else:
-            # 绝对路径（测试用）：接合以来的世界系总增量直接作为目标增量
-            if self._ctrl_prev_quat is not None:
-                if float(np.dot(q_now, self._ctrl_prev_quat)) < 0.0:
-                    q_now = -q_now
-                self._ctrl_prev_quat = q_now.copy()
-            d_quat_quest = quat_mul(q_now, quat_conj(self._ctrl_engage_quat))
-            if self.scale_rotation != 1.0:
-                d_quat_quest = quat_pow(d_quat_quest, self.scale_rotation)
-            d_quat_arm = d_quat_quest
-
-        target_quat = quat_mul(d_quat_arm, self._ee_engage_quat)
+        if float(np.dot(q_now, self._ctrl_prev_quat)) < 0.0:
+            q_now = -q_now
+        reference = self._ctrl_prev_quat if rot_limited else self._ctrl_engage_quat
+        local = quat_mul(quat_conj(reference), q_now)
+        inc = rotvec_to_quat(self.controller_to_tool @ quat_to_rotvec(local))
+        if self.scale_rotation != 1.0:
+            inc = quat_pow(inc, self.scale_rotation)
+        self._ctrl_prev_quat = q_now.copy()
+        self._d_quat_eff = (quat_mul(self._d_quat_eff, inc) if rot_limited else inc)
+        self._d_quat_eff /= np.linalg.norm(self._d_quat_eff)
+        target_quat = quat_mul(self._ee_engage_quat, self._d_quat_eff)
+        # World increment is needed only for an explicitly requested pivot.
+        d_quat_arm = quat_mul(target_quat, quat_conj(self._ee_engage_quat))
 
         if rot_limited:
             # 旋转 reach limit：钳到末端当前姿态的 rot_reach_limit 内，
@@ -239,8 +207,8 @@ class ClutchPoseMapper:
             if e_norm > self.rot_reach_limit:
                 e *= self.rot_reach_limit / e_norm
                 target_quat = quat_mul(rotvec_to_quat(e), np.asarray(ee_quat, float))
-                self._d_quat_eff = quat_mul(target_quat, quat_conj(self._ee_engage_quat))
-                d_quat_arm = self._d_quat_eff
+                self._d_quat_eff = quat_mul(quat_conj(self._ee_engage_quat), target_quat)
+                d_quat_arm = quat_mul(target_quat, quat_conj(self._ee_engage_quat))
 
         if self.rotation_pivot is not None:
             offset = self._ee_engage_pos - self.rotation_pivot

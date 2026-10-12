@@ -1,0 +1,11 @@
+source: AUBO-i5 & CB4 user manual V4.5.11, 2021-05-19, p29 / Appendix E pVI
+applicability: i5 / CB4 simulation; actual cabinet and safety settings not yet verified
+position_limit_rad: 3.0543261909900767
+velocity_limits_rad_s:
+- 2.6179938779914944
+- 2.6179938779914944
+- 2.6179938779914944
+- 3.141592653589793
+- 3.141592653589793
+- 3.141592653589793
+working_limit_rad: 2.94
