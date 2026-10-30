@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 PROJECT_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-TELEOP_RUNTIME=${TELEOP_PYTHON:-/home/lcw/tomato_robot/.venv/bin/python}
+source "$PROJECT_ROOT/scripts/teleop_env.sh"
+teleop_env
+TELEOP_RUNTIME=$TELEOP_PYTHON
 if [[ ! -x "$TELEOP_RUNTIME" ]]; then
   echo "Python runtime unavailable: $TELEOP_RUNTIME; set TELEOP_PYTHON" >&2
   exit 1

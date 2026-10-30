@@ -155,7 +155,7 @@ bash scripts/run_mujoco_teleop.sh --record
 bash scripts/run_mujoco_teleop.sh --record --record-images
 
 # 指定一个尚不存在的输出目录
-bash scripts/run_mujoco_teleop.sh --record /path/to/new-session
+bash scripts/run_mujoco_teleop.sh --record /data/VR_teleoperation_runtime/recordings/my-session
 ```
 
 `manifest.json`：上游版本、模型、配置、夹爪、参数来源与时间域。
@@ -174,14 +174,14 @@ PC monotonic 与 Quest t_client 保持各自的时间域，不伪造精确同步
 
 ## 环境与验证
 
-默认使用已存在的 `/home/lcw/tomato_robot/.venv/bin/python`，不改动该环境。
+默认使用已存在的 `/data/VR_teleoperation_runtime/.venv/bin/python`，由本项目独立管理。
 可用 `TELEOP_PYTHON=/path/to/python` 指定另一环境。
 新环境在项目根目录执行 `python -m pip install -r requirements-mujoco.txt`。
 运行不需要 LeRobot；其原接口保留为可选 facade，尚未做 LeRobot 训练集成验收。
 
 ```bash
-/home/lcw/tomato_robot/.venv/bin/python tests/test_mujoco_teleop.py
-/home/lcw/tomato_robot/.venv/bin/python tests/smoke_mujoco_transport.py
+/data/VR_teleoperation_runtime/.venv/bin/python tests/test_mujoco_teleop.py
+/data/VR_teleoperation_runtime/.venv/bin/python tests/smoke_mujoco_transport.py
 # 第二条创建并关闭自己的本机测试会话、使用临时记录目录，不需头显。
 ```
 

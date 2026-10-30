@@ -248,6 +248,20 @@ class Recorder:
         self.file.close()
 
 
+def recording_path(requested):
+    """New recordings live on /data; existing project data is never moved."""
+    if requested == "auto":
+        runtime = Path(os.environ.get("AUBO_RUNTIME_DIR", "/data/VR_teleoperation_runtime")).resolve()
+        if not runtime.is_relative_to(Path("/data")) or not runtime.is_dir() or not os.access(runtime, os.W_OK):
+            raise ValueError("Recording requires an existing writable runtime directory under /data")
+        path = (runtime / "recordings/mujoco" / time.strftime("%Y%m%d-%H%M%S")).resolve()
+    else:
+        path = Path(requested).expanduser().resolve()
+    if not path.is_relative_to(Path("/data")):
+        raise ValueError("New recordings must be stored under /data")
+    return path
+
+
 class SimCameras:
     """Full-state snapshots rendered once and reused by upstream WebRTC tracks."""
     def __init__(self, follower, relay, recorder=None):
@@ -403,7 +417,7 @@ def main(argv=None):
                                for i in range(follower.model.ncam)]
         recorder = None
         if args.record:
-            path = ROOT/"data/mujoco"/time.strftime("%Y%m%d-%H%M%S") if args.record == "auto" else Path(args.record)
+            path = recording_path(args.record)
             recorder = Recorder(path, manifest, args.record_images)
             stack.callback(recorder.close)
             LOG.info("Recording enabled: %s (images=%s)", path, args.record_images)

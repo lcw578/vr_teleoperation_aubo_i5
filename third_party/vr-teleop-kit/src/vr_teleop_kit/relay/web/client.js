@@ -55,6 +55,10 @@
   const settingsModal = $("settings-modal"), resetSettingsBtn = $("reset-settings");
   const canvas = $("xr-canvas");
   const camOverlay = $("cam-overlay");
+  const recordingHudCanvas = document.createElement("canvas");
+  recordingHudCanvas.width = 1024;
+  recordingHudCanvas.height = 320;
+  const recordingHudContext = recordingHudCanvas.getContext("2d");
 
   // ---- Surface toggles ----
   // Debug rail is a session-persisting side panel (operators may keep it open
@@ -119,7 +123,10 @@
   const ACTIVE_HANDS = new URL(location.href).searchParams.get("hands") === "both"
     ? ["left", "right"] : ["right"];
   let xrEpoch = crypto.randomUUID(), xrSeq = 0;
+  // Spatial identity survives a WebSocket reconnect, but never an XR reset.
+  let xrReferenceId = crypto.randomUUID();
   const newReferenceEpoch = () => { xrEpoch = crypto.randomUUID(); xrSeq = 0; };
+  const newSpatialReference = () => { xrReferenceId = crypto.randomUUID(); newReferenceEpoch(); };
   const rotationSelect = $("rotation-mode");
   rotationSelect.addEventListener("change", () => wsSend({type:"config_update", config:{rotation_mode:rotationSelect.value}}));
 
@@ -875,6 +882,12 @@
   // ---- WebXR ----
   let xrSession = null, xrRefSpace = null, gl = null;
   let xrMode = null;  // "immersive-ar" (passthrough) or "immersive-vr"
+  let recordingHudEndpoint = null; // null=unknown, true=AUBO status route, false=not present
+  let recordingHudStatus = null, recordingHudReceivedMs = 0;
+  let recordingHudNextPollMs = 0, recordingHudRequestInFlight = false;
+  let recordingHudLastModelKey = null;
+  let recordingHudTextureDirty = false;
+  const RECORDING_HUD_TEXTURE = "__aubo_recording_status";
 
   // Calibration state. The calibrate button starts its own dedicated XR
   // session (calibMode=true) — capture is triggered IN-VR by squeezing both
@@ -918,10 +931,10 @@
       xrSession.updateRenderState({ baseLayer: new XRWebGLLayer(xrSession, gl) });
       xrRefSpace = await xrSession.requestReferenceSpace("local-floor")
         .catch(() => xrSession.requestReferenceSpace("local"));
-      newReferenceEpoch();
-      xrRefSpace.addEventListener("reset", newReferenceEpoch);
+      newSpatialReference();
+      xrRefSpace.addEventListener("reset", newSpatialReference);
       xrSession.addEventListener("end", () => {
-        newReferenceEpoch();
+        newSpatialReference();
         xrSession = null; xrRefSpace = null;
         videoGL = null; cameraAnchor = null;
         ui.xrState = xrMode ? "ready" : "unsupported"; ui.engaged = false; refreshPill();
@@ -1063,6 +1076,9 @@
         xrSession.updateRenderState({ baseLayer: new XRWebGLLayer(xrSession, gl) });
         xrRefSpace = await xrSession.requestReferenceSpace("local-floor")
           .catch(() => xrSession.requestReferenceSpace("local"));
+        newSpatialReference();
+        xrRefSpace.addEventListener("reset", newSpatialReference);
+        xrSession.addEventListener("end", newSpatialReference);
 
         calibMode = true;
         calibrating = false;
@@ -1322,6 +1338,67 @@
     return true;
   };
 
+  const _uploadRecordingHudTexture = () => {
+    if (!videoGL) return false;
+    let tex = videoGL.textures[RECORDING_HUD_TEXTURE];
+    if (!tex) {
+      tex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      videoGL.textures[RECORDING_HUD_TEXTURE] = tex;
+    }
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    try {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, recordingHudCanvas);
+    } catch (e) { return false; }
+    return true;
+  };
+
+  const _pollRecordingHud = (nowMs) => {
+    if (!xrSession || calibMode || recordingHudEndpoint === false || recordingHudRequestInFlight ||
+        nowMs < recordingHudNextPollMs) return;
+    recordingHudNextPollMs = nowMs + 500;
+    recordingHudRequestInFlight = true;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1200);
+    fetch("/aubo/status", { cache: "no-store", signal: controller.signal }).then(async (response) => {
+      if (response.status === 404) {
+        recordingHudEndpoint = false;
+        return null;
+      }
+      if (!response.ok) throw new Error(`status ${response.status}`);
+      return response.json();
+    }).then((status) => {
+      if (!status) return;
+      recordingHudEndpoint = true;
+      recordingHudStatus = status;
+      recordingHudReceivedMs = performance.now();
+    }).catch(() => {
+      // The last known status stays visible, then is marked stale below.
+    }).finally(() => {
+      clearTimeout(timeout);
+      recordingHudRequestInFlight = false;
+    });
+  };
+
+  const _recordingHudModel = (nowMs) => {
+    const connection = recordingHudEndpoint === false ? "unsupported"
+      : recordingHudStatus == null ? "connecting"
+        : nowMs - recordingHudReceivedMs > 2500 ? "disconnected" : "connected";
+    const active = recordingHudStatus && recordingHudStatus.collection;
+    const duration = active && active.active_episode != null && Number.isFinite(active.active_episode_elapsed_s)
+      ? active.active_episode_elapsed_s + (active.state === "paused"
+        ? 0 : Math.max(0, nowMs-recordingHudReceivedMs)/1000)
+      : null;
+    return window.VRTeleopRecordingHud.model(recordingHudStatus,
+      { connection, activeElapsedSeconds: duration });
+  };
+
   const _drawVideoQuad = (VP, modelMat, camId) => {
     const tex = videoGL.textures[camId];
     if (!tex) return;
@@ -1407,6 +1484,52 @@
     gl.disable(gl.BLEND);
   };
 
+  // A small head-locked status card remains visible while the operator looks
+  // around in passthrough. The panel is drawn into the XR framebuffer (DOM
+  // overlays are not reliable in Quest immersive AR), and status is polled
+  // independently from the pose WebSocket at only 2 Hz.
+  const _renderRecordingHud = (vpose, layer, nowMs) => {
+    _pollRecordingHud(nowMs);
+    const view = _recordingHudModel(nowMs);
+    const modelKey = JSON.stringify(view);
+    if (modelKey !== recordingHudLastModelKey) {
+      recordingHudLastModelKey = modelKey;
+      window.VRTeleopRecordingHud.draw(recordingHudContext, view);
+      recordingHudTextureDirty = true;
+    }
+    if (!view.visible) return;
+    if (!videoGL) _initVideoGL();
+    if (recordingHudTextureDirty) {
+      if (!_uploadRecordingHudTexture()) return;
+      recordingHudTextureDirty = false;
+    }
+    const key = xyzw(vpose.transform.orientation);
+    const headPosition = xyz(vpose.transform.position);
+    const forwardOffset = rotateVecByQuat([0, -0.25, -0.95], key);
+    const panelPose = mat4FromPosQuat([
+      headPosition[0] + forwardOffset[0],
+      headPosition[1] + forwardOffset[1],
+      headPosition[2] + forwardOffset[2],
+    ], key);
+    const panelScale = new Float32Array([
+      0.62, 0, 0, 0,
+      0, 0.205, 0, 0,
+      0, 0, 1, 0,
+      0, 0, 0, 1,
+    ]);
+    const modelWorld = mat4Mul(panelPose, panelScale);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.disable(gl.DEPTH_TEST);
+    for (const eye of vpose.views) {
+      const vpRect = layer.getViewport(eye);
+      gl.viewport(vpRect.x, vpRect.y, vpRect.width, vpRect.height);
+      const VP = mat4Mul(eye.projectionMatrix, eye.transform.inverse.matrix);
+      _drawVideoQuad(VP, modelWorld, RECORDING_HUD_TEXTURE);
+    }
+    gl.disable(gl.BLEND);
+  };
+
   function onXRFrame(_time, frame) {
     if (!xrSession) return;
     xrSession.requestAnimationFrame(onXRFrame);
@@ -1461,7 +1584,10 @@
     // first frame; see _renderCameraQuads).
     {
       const vpose = frame.getViewerPose(xrRefSpace);
-      if (vpose) _renderCameraQuads(vpose, layer);
+      if (vpose) {
+        _renderCameraQuads(vpose, layer);
+        _renderRecordingHud(vpose, layer, _time);
+      }
     }
 
     if (calibMode || calibrating) calibFrameCount++;
@@ -1564,7 +1690,7 @@
     }
 
     // Empty-controller frames distinguish a running XR loop from tracking loss.
-    wsSend({ type: "xr_frame", epoch:xrEpoch, seq:xrSeq++,
+    wsSend({ type: "xr_frame", epoch:xrEpoch, reference_id:xrReferenceId, seq:xrSeq++,
              t_client:performance.now(), controllers, viewer,
              calibration:{readoutOffset, activeHands:ACTIVE_HANDS} });
   }

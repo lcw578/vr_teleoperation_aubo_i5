@@ -8,9 +8,9 @@ while [[ ! -d "$TASK_ROOT/assets/aubo_i5" ]]; do
 done
 TASK_WS="$TASK_ROOT/ros2_ws"
 TASK_PKG="$TASK_WS/src/aubo_i5_teleop"
-TASK_PY=${TELEOP_PYTHON:-/home/lcw/tomato_robot/.venv/bin/python}
-source /opt/ros/humble/setup.bash
-source "$TASK_WS/install/setup.bash"
+source "$TASK_ROOT/scripts/teleop_env.sh"
+teleop_ros_env
+TASK_PY=$TELEOP_PYTHON
 export TELEOP_GRIPPER=${GRIPPER:-${TELEOP_GRIPPER:-rg}}
 INPUT=${INPUT:-quest}
 for argument in "$@"; do

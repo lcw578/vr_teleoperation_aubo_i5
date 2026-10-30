@@ -12,7 +12,7 @@ bash scripts/run_mujoco_teleop.sh --backend kinematic --rotation world --gripper
 ```
 
 入口自带 Relay 和 MuJoCo Viewer，无需 ROS、RViz、MoveIt、单独 run_relay.sh 或 LeRobot。
-默认环境为 `/home/lcw/tomato_robot/.venv/bin/python`，可用 TELEOP_PYTHON 显式覆盖。
+默认环境为 `/data/VR_teleoperation_runtime/.venv/bin/python`，可用 TELEOP_PYTHON 显式覆盖。
 先退出旧会话；工作区锁和端口检查拒绝冲突。头显地址为
 `https://电脑当前局域网IP:8443/`，IP是运行环境，不是固定参数。
 USB可加 `--usb`，并运行 `adb reverse tcp:8443 tcp:8443`，访问 `http://localhost:8443/`。
@@ -115,6 +115,8 @@ j4_anchor为foreArm_Link上的joint-4原点，不照搬DK1额外10cm延伸。
 ## 记录与时钟
 
 默认不创建数据目录；`--record`开启信号，另加`--record-images`才写JPEG。
+2026-10-13补充：自动录制路径改为 `/data/VR_teleoperation_runtime/recordings/mujoco/<时间>`，
+自定义新录制路径也要求位于 `/data`。该变更只调整存储，控制行为与本基线一致；没有迁移已有数据。
 运动学标记state_source=kinematic_preview，显示角为q_simulated；q_measured、
 物理速度与执行器力反馈为空。sim_time是预览周期时钟，不是物理积分时间。
 PC monotonic与Quest t_client保留不同时间域，不伪造同步；排队年龄不是绝对单程延迟。
@@ -168,3 +170,6 @@ sha256sum --check --quiet docs/baselines/sim-world-rg-2026-10-12.sha256
 ```
 
 腕部校准、浏览器个人参数不在源码指纹内。
+2026-10-13离线接入补充后，旧清单中的 README、teleop/mujoco_session.py和
+tests/test_mujoco_teleop.py有已说明的变动（离线说明与录制路径/测试），旧清单保留为历史快照。
+当前源码核验见 [本轮记录](aubo_offline_completion_2026-10-13.md)。

@@ -81,7 +81,9 @@ def main():
     args = parser.parse_args()
     with socket.socket() as s:
         s.bind(("127.0.0.1",0)); port=s.getsockname()[1]
-    with tempfile.TemporaryDirectory(prefix="aubo-transport-") as base:
+    runtime_tmp = Path(os.environ.get("TELEOP_RUNTIME_ROOT", "/data/VR_teleoperation_runtime")) / "tmp"
+    runtime_tmp.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="aubo-transport-", dir=runtime_tmp) as base:
         base=Path(base)
         log=(base/"runtime.log").open("w")
         env=dict(os.environ,MUJOCO_GL="egl")

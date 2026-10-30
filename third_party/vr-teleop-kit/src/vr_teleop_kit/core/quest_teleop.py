@@ -22,7 +22,7 @@ Standard LeRobot-style loop:
 
 Per-tick pipeline inside `_update_arm`:
 
-  1. Staleness gate — if no `xr_frame` for > XR_FRAME_STALE_TIMEOUT_S,
+  1. Staleness gate — if no `xr_frame` for > config.xr_frame_stale_timeout_s,
      mark `needs_reanchor` and skip the tick. On the first fresh tick
      after recovery, the engage frame is silently re-captured so the
      delta-since-engage restarts at zero (no catch-up motion).
@@ -99,11 +99,13 @@ REST_RAMP_BUTTON_INDEX = 3
 ARM_DOFS = 6
 NQ = 8  # arm (6) + 2 gripper-finger sliders
 
-# If no xr_frame has been received in this many seconds, treat the
+# Default: if no xr_frame has been received in this many seconds, treat the
 # controller stream as stale: force-disengage any engaged arm and
 # refuse to start a new engagement. Protects against the
 # "buffer-burst → catch-up motion" failure mode when the WS connection
-# (typically the cloudflared tunnel) stalls and then floods.
+# (typically the cloudflared tunnel) stalls and then floods. This also
+# remains the queued-source-pose age limit when the missing-input allowance
+# is configured separately for a particular robot instance.
 XR_FRAME_STALE_TIMEOUT_S = 0.2
 
 # Gripper prismatic range from the URDF (`gripper_left`, `gripper_right`).
@@ -152,6 +154,9 @@ class QuestTeleoperatorConfig:
     ws_url: str = "ws://127.0.0.1:8443/ws"
     publish_ik_state: bool = True
     connect_timeout_s: float = 5.0
+    # Per-instance missing-input allowance. Queued source poses retain the
+    # separate XR_FRAME_STALE_TIMEOUT_S age gate below.
+    xr_frame_stale_timeout_s: float = XR_FRAME_STALE_TIMEOUT_S
     # Path to the DK1 follower URDF (deliberately not vendored — clone
     # github.com/robot-learning-co/trlc-dk1). Empty string falls
     # back to the DK1_URDF environment variable.
@@ -262,6 +267,8 @@ class QuestTeleoperator:
 
     def __init__(self, config: QuestTeleoperatorConfig, models: dict | None = None) -> None:
         self.config = config
+        if not np.isfinite(config.xr_frame_stale_timeout_s) or config.xr_frame_stale_timeout_s <= 0:
+            raise ValueError("xr_frame_stale_timeout_s must be finite and positive")
 
         self._r_calib = np.asarray(config.r_calib, dtype=float)
         if self._r_calib.shape != (3, 3):
@@ -769,7 +776,7 @@ class QuestTeleoperator:
             if self._source_time is not None and source < self._source_time:
                 self.input_stats["out_of_order"] += 1
                 return False
-            if self._source_time is not None and source-self._source_time > XR_FRAME_STALE_TIMEOUT_S:
+            if self._source_time is not None and source-self._source_time > self.config.xr_frame_stale_timeout_s:
                 for arm in self._arms.values():
                     if arm["engaged"]:
                         arm["needs_reanchor"] = True
@@ -851,7 +858,7 @@ class QuestTeleoperator:
         # whole tick (no engage/disengage, no IK). Flag that we need to
         # re-anchor when fresh data resumes, so the engage-delta starts
         # at zero again and there is no catch-up motion.
-        if ctrl is None or gap_s > XR_FRAME_STALE_TIMEOUT_S:
+        if ctrl is None or gap_s > self.config.xr_frame_stale_timeout_s:
             if arm["engaged"] and not arm["needs_reanchor"]:
                 arm["needs_reanchor"] = True
                 logger.warning("%s xr_frame stale (%.2fs gap) — pausing", hand, gap_s)

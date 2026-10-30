@@ -10,7 +10,7 @@ from unittest.mock import patch
 os.environ.setdefault("MUJOCO_GL", "egl")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from teleop.mujoco_session import MuJoCoFollower, Recorder, SPEC, RG_READY, load_model, parse_args
+from teleop.mujoco_session import MuJoCoFollower, Recorder, SPEC, RG_READY, load_model, parse_args, recording_path
 from vr_teleop_kit.core.pose_mapping import ClutchPoseMapper, quat_mul, quat_conj, rotvec_to_quat
 
 
@@ -303,6 +303,12 @@ class UpstreamParityTests(unittest.TestCase):
             row=json.loads((rec.path/"signals.jsonl").read_text())
             self.assertEqual(row["sim_time"],.01)
             self.assertEqual(sorted(p.name for p in rec.path.iterdir()),["manifest.json","signals.jsonl"])
+
+    def test_recording_paths_are_on_data_without_moving_existing_project(self):
+        self.assertTrue(recording_path("auto").is_relative_to(Path("/data")))
+        self.assertEqual(recording_path("/data/VR_teleoperation_runtime/explicit"),
+                         Path("/data/VR_teleoperation_runtime/explicit"))
+        with self.assertRaises(ValueError): recording_path("/home/lcw/record")
 
 
 class KinematicTests(unittest.TestCase):

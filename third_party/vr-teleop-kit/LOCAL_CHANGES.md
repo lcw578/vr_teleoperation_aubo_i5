@@ -44,6 +44,10 @@ examples, tools, web UI, relay, and optional LeRobot interfaces.
   wrist calibration, calibration JSON export/import, reference-space epochs,
   empty-controller frames, WS reconnection and send-backlog guard. Pivot fit,
   readout correction, camera panels and XR rendering are the author's code.
+  Added `recording_hud.js`, a tested AUBO recording-status HUD rendered as a
+  head-locked WebXR canvas panel near the lower field of view in passthrough.
+  It polls `/aubo/status` at 2 Hz and shows confirmed episode/save state,
+  elapsed time, and stale-connection warnings.
 
 ## AUBO backend outside the upstream package
 
