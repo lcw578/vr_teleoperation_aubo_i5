@@ -61,8 +61,12 @@ class J6QuestRuntime(OfflineRuntime):
     mode = "aubo_j6_supervised_follow"
     motion_available = True
 
-    def __init__(self, shadow, worker, *, recorder=None, home_reference=None, home_error=None, **kwargs):
+    def __init__(self, shadow, worker, *, recorder=None, home_reference=None, home_error=None,
+                 home_trigger='hold', **kwargs):
         super().__init__(shadow, dispatch_fake=False, **kwargs)
+        if home_trigger not in ('hold', 'oneshot'):
+            raise ValueError("home_trigger must be 'hold' or 'oneshot'")
+        self.home_trigger = home_trigger
         self.worker = worker
         self._waiting_stop = False
         self._last_stop_confirmed_s = None
@@ -89,6 +93,7 @@ class J6QuestRuntime(OfflineRuntime):
             target_q_rad=list(home_reference['q_rad']) if home_reference else None,
             state='idle' if home_reference else 'disabled', error=home_error,
             control_button='left_y_hold', requires_right_grip=False, hold_timeout_s=.2,
+            trigger=home_trigger,
             target_speed_deg_s=math.degrees(HOME_SPEED_RAD_S),
             target_acceleration_deg_s2=math.degrees(HOME_ACCEL_RAD_S2),
             requested_monotonic_s=None, completed_monotonic_s=None, max_error_deg=None)
@@ -111,10 +116,13 @@ class J6QuestRuntime(OfflineRuntime):
             return
         self.home.update(state='failed' if failed else 'cancelled', error=str(reason))
         self._home_offered = False
+        self._home_button_requested = False
         self._home_cancel_reason = None
         self.submit_fault(str(reason) if failed else 'home_cancelled')
         self.shadow.reject_input('home_cancelled')
-        self.last_operator_message = '回位已停止：'+str(reason)+'；松开后重新按住左 Y 才能再次回位'
+        self.last_operator_message = ('回位已中止：'+str(reason)+'；再按一次左 Y 重新开始'
+            if self.home_trigger == 'oneshot' else
+            '回位已停止：'+str(reason)+'；松开后重新按住左 Y 才能再次回位')
         self._home_event()
 
     def _advance_home(self):
@@ -130,7 +138,8 @@ class J6QuestRuntime(OfflineRuntime):
             self._cancel_home(self._home_cancel_reason)
             return
         phase = self.home['state']
-        if (phase in ('waiting_for_stop', 'ready', 'moving') and
+        if (self.home_trigger == 'hold' and
+                phase in ('waiting_for_stop', 'ready', 'moving') and
                 self._home_button_requested and not self.buttons.home_hold_active(self.clock())):
             self._cancel_home('home_button_released_or_expired')
             return
@@ -204,6 +213,7 @@ class J6QuestRuntime(OfflineRuntime):
             self.home.update(state='complete', completed_monotonic_s=self.clock(),
                              max_error_deg=math.degrees(error))
             self._home_offered = False
+            self._home_button_requested = False
             self.last_operator_message = '已回到原位并确认停稳；松开再按 Grip 才能重新遥操'
             self._home_event()
 
@@ -263,6 +273,8 @@ class J6QuestRuntime(OfflineRuntime):
         """Revoke at receipt; starting a recording never resumes a held Grip."""
         for command in commands:
             if command == 'home_hold_end':
+                if self.home_trigger == 'oneshot':
+                    continue
                 if not self._home_busy():
                     continue
                 self._home_cancel_reason = 'home_button_released'
@@ -427,8 +439,13 @@ class J6QuestRuntime(OfflineRuntime):
                 elif command == 'mark':
                     self.last_operator_message = '事件标记已提交' if self.recorder else '未开启录制，未保存标记'
                 elif command == 'home_hold_end':
+                    if self.home_trigger == 'oneshot':
+                        continue
                     self._cancel_home('home_button_released')
                 elif command in ('return_home', 'home_hold_start'):
+                    if self.home_trigger == 'oneshot' and self.home['state'] == 'moving':
+                        self._cancel_home('home_abort_pressed')
+                        continue
                     hardware = self.worker.status()
                     if (not self.home['enabled'] or not self.worker.six_axis or self.worker.command_mode != 'follow'):
                         self.last_operator_message = '运动回位不可用：需要有效原位配置和六轴 Follow 模式'
@@ -618,7 +635,8 @@ class J6QuestRuntime(OfflineRuntime):
         self.watchdog_tick()
         with self._operator_lock:
             if (not self._home_button_requested or
-                    not self.buttons.home_hold_active(self.clock()) or
+                    (self.home_trigger == 'hold' and
+                     not self.buttons.home_hold_active(self.clock())) or
                     self._home_cancel_reason is not None or self._operator_barrier):
                 return None
             candidate = Candidate(tuple(self.home['target_q_rad']), self.clock(), self._home_session)
@@ -804,6 +822,9 @@ def main(argv=None):
     p.add_argument("--workspace-alignment", help="explicit calibrated XR-to-workspace JSON")
     p.add_argument('--home-reference', default=str(DEFAULT_HOME_PATH),
                    help='measured joint-home JSON; only used after an explicit home request and fresh Grip engagement')
+    p.add_argument('--home-trigger', choices=('hold', 'oneshot'), default='hold',
+                   help='left-Y home trigger: hold=press-and-hold (legacy, 200ms freshness gate); '
+                        'oneshot=one press latches the return, second press aborts, Grip release still stops')
     p.add_argument("--relay-port", type=int, default=8443)
     p.add_argument("--rotation", choices=("world", "tool_local"), default="world")
     p.add_argument("--preview-speed-deg-s", type=float,
@@ -1066,7 +1087,10 @@ def main(argv=None):
                     home_reference=home_reference, home_reference_error=home_error,
                     home_target_speed_deg_s=math.degrees(HOME_SPEED_RAD_S),
                     home_target_acceleration_deg_s2=math.degrees(HOME_ACCEL_RAD_S2),
-                    home_hold_policy='left_y_fresh_press_then_hold; release_or_200ms_gap_revokes; right_grip_not_required',
+                    home_hold_policy=('left_y_fresh_press_then_hold; release_or_200ms_gap_revokes; right_grip_not_required'
+                        if args.home_trigger == 'hold' else
+                        'left_y_press_latches_return; second_press_aborts; release_and_200ms_input_gaps_do_not_revoke; '
+                        'feedback_or_worker_faults_still_stop; grip_release_stops; right_grip_not_required'),
                     scale_translation=shadow.core.config.scale_translation,
                     scale_rotation=shadow.core.config.scale_rotation,
                     workspace_alignment=alignment))
@@ -1077,6 +1101,7 @@ def main(argv=None):
             worker.recorder = recorder
         stack.callback(close_worker)
         runtime = J6QuestRuntime(shadow,worker,recorder=recorder,home_reference=home_reference,home_error=home_error,
+            home_trigger=args.home_trigger,
             control_dt=shadow.core.config.control_dt,
             expected_reference_id=alignment["xr_reference_id"] if alignment else None)
         if args.execute_six_axis:

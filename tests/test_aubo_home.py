@@ -282,4 +282,99 @@ class HomeRuntimeTests(unittest.TestCase):
                 recorder.close();self.runtime.recorder=self.worker.recorder=None
 
 
+    def test_default_trigger_is_hold_and_status_reports_it(self):
+        self.assertEqual(self.runtime.home_trigger,'hold')
+        self.assertEqual(self.runtime.home['trigger'],'hold')
+
+
+class HomeOneshotTests(unittest.TestCase):
+    """一键归位（2026-11-01）：按一下左 Y 锁存归位目标；松开/输入空档不撤销；
+    再按一次中止；Grip 释放与 worker 故障照旧停止；速度/容差/录制挂起不变。
+    自包含 harness：input_timeout_s=1.0（产线值），与 hold 测试互不干扰。"""
+
+    def setUp(self):
+        self.clock=Clock();self.client=SixClient(self.clock)
+        self.worker=J6FollowWorker(self.client,[0.]*6,j6_range_rad=(-3.,3.),
+            joint_ranges_rad=[[-3.,3.]]*6,clock=self.clock,follow_hz=25)
+        self.shadow=make_shadow([0.]*6,[[-3.,3.]]*6,input_timeout_s=1.0)
+        self.shadow.clock=self.clock;self.shadow.session.clock=self.clock
+        self.shadow.session.cache.clock=self.clock
+        self.reference=dict(path='isolated-synthetic-reference',q_rad=(.03,-.02,.01,0.,0.,.02))
+        self.runtime=J6QuestRuntime(self.shadow,self.worker,home_reference=self.reference,
+            home_trigger='oneshot',control_dt=.005,clock=self.clock)
+        self.seq=0
+        self.patch=patch('vr_teleop_kit.core.quest_teleop.time.monotonic',self.clock)
+        self.patch.start();self.addCleanup(self.patch.stop)
+        self.stop_patch=patch('teleop.aubo.follow.time.sleep',side_effect=lambda _:self.clock.advance(.051))
+        self.stop_patch.start();self.addCleanup(self.stop_patch.stop)
+
+    def tick(self,grip=False,dt=.041,*,home=True,left_present=True,epoch='test'):
+        self.clock.advance(dt)
+        self.shadow.feedback(self.client.q,received_monotonic_s=self.clock())
+        self.runtime.submit_xr_frame(frame(self.seq,self.clock(),right=(1,) if grip else (),
+            left=(5,) if home else (),left_present=left_present,epoch=epoch))
+        self.seq+=1
+        candidate=self.runtime.step();self.worker._cycle()
+        return candidate
+
+    def prepare_home(self):
+        self.tick(False,home=False)
+        self.runtime.request_operator_command('return_home');self.tick(False,home=False)
+        self.assertEqual(self.runtime.home['state'],'ready')
+        self.tick(False)
+
+    def test_trigger_reported_in_status(self):
+        self.assertEqual(self.runtime.home_trigger,'oneshot')
+        self.assertEqual(self.runtime.home['trigger'],'oneshot')
+
+    def test_input_staleness_does_not_cancel_latched_return(self):
+        self.prepare_home();self.tick(False);self.tick(False)
+        self.assertEqual(self.runtime.home['state'],'moving')
+        self.clock.advance(.201)
+        # 柜端推送是独立通道：输入断流期间反馈仍然新鲜——这才是要验的场景
+        self.worker.cache.update(self.client.q,received_monotonic_s=self.clock(),source='synthetic')
+        self.shadow.feedback(self.client.q,received_monotonic_s=self.clock())
+        self.runtime.step();self.worker._cycle()
+        self.assertEqual(self.runtime.home['state'],'moving')
+        self.assertTrue(self.client.permitted)
+
+    def test_y_release_does_not_cancel_latched_return(self):
+        self.prepare_home();self.tick(False);self.tick(False)
+        self.tick(False,home=False);self.tick(False,home=False)
+        self.assertEqual(self.runtime.home['state'],'moving')
+        self.assertTrue(self.client.permitted)
+
+    def test_second_press_aborts_and_third_press_restarts(self):
+        self.prepare_home();self.tick(False);self.tick(False)
+        self.tick(False,home=False)   # 松开：oneshot 忽略，不撤销
+        self.tick(True)               # 再按：中止当前归位
+        self.assertEqual(self.runtime.home['state'],'cancelled')
+        self.assertEqual(self.runtime.home['error'],'home_abort_pressed')
+        self.assertFalse(self.client.permitted)
+        self.tick(False,home=False);self.tick(False,home=False)
+        self.runtime.request_operator_command('return_home')
+        self.tick(False,home=False)
+        self.tick(True)               # 第三次按：重新锁存
+        self.assertIn(self.runtime.home['state'],
+                      ('waiting_for_stop','ready','moving','complete'))
+
+    def test_latched_return_reaches_home_without_any_hold(self):
+        self.prepare_home()           # web 预备 → ready；尾 tick 的 Y 按下沿 = 锁存
+        for _ in range(150):
+            self.tick(False,home=False)   # 松开：锁存继续归位
+            if self.runtime.home['state']=='complete':break
+        self.assertEqual(self.runtime.home['state'],'complete')
+        self.assertTrue(self.worker.status()['stop_confirmed'])
+        self.assertLess(max(abs(a-b) for a,b in zip(self.client.q,self.reference['q_rad'])),
+                        math.radians(.15))
+
+    def test_worker_fault_still_cancels_latched_return(self):
+        self.prepare_home();self.tick(False);self.tick(False)
+        self.worker.revoke('synthetic_hardware_fault',fatal=True)
+        self.tick(False,home=False)
+        self.assertEqual(self.runtime.home['state'],'failed')
+        self.assertTrue(self.worker.status()['fatal'])
+        self.assertFalse(self.client.permitted)
+
+
 if __name__=='__main__':unittest.main(verbosity=2)
