@@ -762,8 +762,11 @@ class J6FollowWorker:
             offset = desired
             if wanted[3] == 'home_return':
                 from .home import bounded_home_step
+                # dt 放宽到 3×周期（2026-11-01）：双峰应答下实际间隔 >周期时，
+                # 原封顶让目标斜坡只跑名义速度的 ~40%，跟踪差距稳定增长触发
+                # 3°→8° 容差。上限仍受 bounded_home_step 内部 0.12s 二次封顶。
                 target, home_velocity = bounded_home_step(self._last_sent_q, projected,
-                    self._home_velocity, min(self.period_s, now-self._last_send_s))
+                    self._home_velocity, min(now-self._last_send_s, 3*self.period_s))
                 offset = (target[5]-self.anchor[5])/math.radians(1.)
         else:
             # Preserve the separate legacy J6 commissioning path.

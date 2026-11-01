@@ -21,7 +21,8 @@ from .runtime import OfflineRuntime
 from .diagnostic_stream import DiagnosticStream
 from .operator_controls import OperatorButtons, xr_record
 from .recording import RawRecorder, recording_path
-from .home import DEFAULT_HOME_PATH, HOME_SPEED_RAD_S, HOME_ACCEL_RAD_S2, HOME_TOLERANCE_RAD, load_home
+from .home import (DEFAULT_HOME_PATH, HOME_SPEED_RAD_S, HOME_ACCEL_RAD_S2,
+    HOME_TOLERANCE_RAD, HOME_TRACKING_ERROR_RAD, load_home)
 
 
 def validate_prepare_profile(prepare, *, six_axis, command_mode="follow", follow_hz=20.):
@@ -185,7 +186,7 @@ class J6QuestRuntime(OfflineRuntime):
             attempt = hardware.get('last_attempt') or {}
             if attempt.get('control_source') == 'home_return' and attempt.get('outcome') == 'sdk_accepted':
                 sent = attempt['sdk_result']['target_rad']
-                if max(abs(q-target) for q, target in zip(sample.q_rad, sent)) > math.radians(3.):
+                if max(abs(q-target) for q, target in zip(sample.q_rad, sent)) > HOME_TRACKING_ERROR_RAD:
                     self._cancel_home('home_tracking_error', failed=True)
                     return
             if error <= HOME_TOLERANCE_RAD:
