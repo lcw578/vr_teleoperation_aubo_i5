@@ -765,7 +765,8 @@ class J6QuestRuntime(OfflineRuntime):
             clutch = "release_grip" if status["require_release"] else "ready_to_engage"
         if self.episode_waiting_start and clutch not in ('fault', 'stopping'):
             clutch = 'episode_waiting_start'
-        collection = self.recorder.status() if self.recorder else dict(enabled=False, state='disabled')
+        collection = self.recorder.status() if self.recorder else dict(enabled=False, state='disabled',
+            active_episode=None)
         return dict(status, clutch_state='operator_paused' if self.operator_paused else clutch,
             last_input_stop=self._last_input_stop, operator_paused=self.operator_paused,
             episode_waiting_start=self.episode_waiting_start,
@@ -850,9 +851,14 @@ def main(argv=None):
     diagnostic_path = None
     if args.diagnostic_output:
         diagnostic_path = Path(args.diagnostic_output).expanduser().resolve()
+        roots = [Path('/data')]
+        for part in os.environ.get('AUBO_ALLOWED_ROOTS', '').split(':'):
+            if part:
+                roots.append(Path(part).expanduser().resolve())
         if (not connect or (execute and not 0 < args.duration <= 300) or
-                Path('/data') not in diagnostic_path.parents or not diagnostic_path.parent.is_dir()):
-            p.error("Diagnostics require explicit execution with duration in (0,300], or profile inspection, and an existing /data parent directory")
+                not any(root in diagnostic_path.parents for root in roots)
+                or not diagnostic_path.parent.is_dir()):
+            p.error("Diagnostics require explicit execution with duration in (0,300], or profile inspection, and an existing parent directory under /data or AUBO_ALLOWED_ROOTS")
     if not connect:
         if args.host or args.port or args.user:
             p.error("Device parameters require explicit execution")

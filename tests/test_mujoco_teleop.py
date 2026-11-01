@@ -304,11 +304,15 @@ class UpstreamParityTests(unittest.TestCase):
             self.assertEqual(row["sim_time"],.01)
             self.assertEqual(sorted(p.name for p in rec.path.iterdir()),["manifest.json","signals.jsonl"])
 
-    def test_recording_paths_are_on_data_without_moving_existing_project(self):
-        self.assertTrue(recording_path("auto").is_relative_to(Path("/data")))
-        self.assertEqual(recording_path("/data/VR_teleoperation_runtime/explicit"),
-                         Path("/data/VR_teleoperation_runtime/explicit"))
-        with self.assertRaises(ValueError): recording_path("/home/lcw/record")
+    def test_recording_paths_stay_in_designated_runtime_without_moving_existing_project(self):
+        # 2026-11-01: bulk-output root is parameterized (AUBO_RUNTIME_DIR/AUBO_ALLOWED_ROOTS);
+        # the invariant under test is "recordings stay inside the designated runtime tree,
+        # existing project data is never moved" — not the literal /data mount point.
+        runtime = Path(os.environ.get("AUBO_RUNTIME_DIR", "/data/VR_teleoperation_runtime"))
+        self.assertTrue(recording_path("auto").is_relative_to(runtime))
+        self.assertEqual(recording_path(str(runtime / "explicit")),
+                         runtime / "explicit")
+        with self.assertRaises(ValueError): recording_path("/tmp/record")
 
 
 class KinematicTests(unittest.TestCase):

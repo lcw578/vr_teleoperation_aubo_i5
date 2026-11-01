@@ -248,17 +248,27 @@ class Recorder:
         self.file.close()
 
 
+def _allowed_roots():
+    """Bulk-output roots: /data always, plus AUBO_ALLOWED_ROOTS (colon-separated)."""
+    roots = [Path("/data")]
+    for part in os.environ.get("AUBO_ALLOWED_ROOTS", "").split(":"):
+        if part:
+            roots.append(Path(part).expanduser().resolve())
+    return roots
+
+
 def recording_path(requested):
-    """New recordings live on /data; existing project data is never moved."""
+    """New recordings live in the designated runtime tree; existing project data is never moved."""
     if requested == "auto":
         runtime = Path(os.environ.get("AUBO_RUNTIME_DIR", "/data/VR_teleoperation_runtime")).resolve()
-        if not runtime.is_relative_to(Path("/data")) or not runtime.is_dir() or not os.access(runtime, os.W_OK):
-            raise ValueError("Recording requires an existing writable runtime directory under /data")
+        if (not any(runtime.is_relative_to(root) or runtime == root for root in _allowed_roots())
+                or not runtime.is_dir() or not os.access(runtime, os.W_OK)):
+            raise ValueError("Recording requires an existing writable runtime directory under /data or AUBO_ALLOWED_ROOTS")
         path = (runtime / "recordings/mujoco" / time.strftime("%Y%m%d-%H%M%S")).resolve()
     else:
         path = Path(requested).expanduser().resolve()
-    if not path.is_relative_to(Path("/data")):
-        raise ValueError("New recordings must be stored under /data")
+    if not any(path.is_relative_to(root) for root in _allowed_roots()):
+        raise ValueError("New recordings must be stored under /data or AUBO_ALLOWED_ROOTS")
     return path
 
 

@@ -10,10 +10,14 @@ if [[ ! -d "$AUBO_RUNTIME" || ! -w "$AUBO_RUNTIME" ]]; then
   echo "Create a writable runtime directory first: $AUBO_RUNTIME" >&2
   exit 1
 fi
-case "$(realpath "$AUBO_RUNTIME")" in
-  /data/*) ;;
-  *) echo "Build outputs must be in an independent /data directory" >&2; exit 1;;
-esac
+_AUBO_RUNTIME_RP=$(realpath "$AUBO_RUNTIME")
+_AUBO_ROOT_OK=0
+for _root in /data ${AUBO_ALLOWED_ROOTS:-}; do
+  case "$_AUBO_RUNTIME_RP" in "${_root%/}"/*) _AUBO_ROOT_OK=1;; esac
+done
+if [[ $_AUBO_ROOT_OK != 1 ]]; then
+  echo "Build outputs must resolve under /data or AUBO_ALLOWED_ROOTS" >&2; exit 1
+fi
 cmake -S "$PROJECT_ROOT/teleop/aubo/native" -B "$AUBO_RUNTIME/build-readonly" \
   -DCMAKE_BUILD_TYPE=Release -DPython3_EXECUTABLE="$AUBO_PYTHON" \
   -DAUBO_SDK_ROOT="$AUBO_SDK_PATH"

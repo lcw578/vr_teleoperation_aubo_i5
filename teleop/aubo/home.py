@@ -1,12 +1,14 @@
 """User-selected joint home and bounded targets; no SDK or device I/O."""
 import json
 import math
+import os
 from pathlib import Path
 
 from .feedback import joints
 
 
-DEFAULT_HOME_PATH = Path('/data/VR_teleoperation_runtime/config/aubo_home_20261029T091225103094Z.json')
+DEFAULT_HOME_PATH = Path(os.environ.get('AUBO_RUNTIME_DIR', '/data/VR_teleoperation_runtime'),
+                         'config', 'aubo_home_20261029T091225103094Z.json')
 HOME_SPEED_RAD_S = math.radians(20.)
 HOME_ACCEL_RAD_S2 = math.radians(6.)
 HOME_TOLERANCE_RAD = math.radians(.15)

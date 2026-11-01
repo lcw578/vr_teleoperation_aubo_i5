@@ -6,9 +6,16 @@ source "$PROJECT_ROOT/scripts/teleop_env.sh"
 teleop_env
 AUBO_PYTHON=$TELEOP_PYTHON
 if [[ ! -d "$AUBO_RUNTIME" || ! -w "$AUBO_RUNTIME" ]]; then
-  echo "A writable /data runtime directory is required" >&2; exit 1
+  echo "A writable runtime directory is required (AUBO_RUNTIME_DIR or /data/VR_teleoperation_runtime)" >&2; exit 1
 fi
-case "$(realpath "$AUBO_RUNTIME")" in /data/*) ;; *) exit 1;; esac
+_AUBO_RUNTIME_RP=$(realpath "$AUBO_RUNTIME")
+_AUBO_ROOT_OK=0
+for _root in /data ${AUBO_ALLOWED_ROOTS:-}; do
+  case "$_AUBO_RUNTIME_RP" in "${_root%/}"/*) _AUBO_ROOT_OK=1;; esac
+done
+if [[ $_AUBO_ROOT_OK != 1 ]]; then
+  echo "Runtime directory must resolve under /data or AUBO_ALLOWED_ROOTS" >&2; exit 1
+fi
 AUBO_SDK_PATH=$("$AUBO_PYTHON" - "$AUBO_RUNTIME" <<'PY'
 import hashlib,json,pathlib,sys
 m=json.loads((pathlib.Path(sys.argv[1])/'readonly-build.json').read_text())

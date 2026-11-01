@@ -524,6 +524,16 @@ class QuestRuntimeTests(unittest.TestCase):
     def frame(self,grip,seq=0,epoch="test"):
         return dict(type="xr_frame",epoch=epoch,seq=seq,t_client=10.,controllers={"right":dict(
             position=[0.,0.,0.],orientation=[0.,0.,0.,1.],buttons=[dict(p=False,v=0.),dict(p=grip,v=float(grip))])})
+    def test_status_without_recorder_reports_recording_disabled(self):
+        # Regression 2026-11-01: status() crashed with KeyError('active_episode')
+        # when no --record was passed; the disabled-collection fallback must carry
+        # every key the status builder reads.
+        self.assertIsNone(self.runtime.recorder)
+        status=self.runtime.status()
+        self.assertFalse(status["recording"])
+        self.assertFalse(status["recording_paused"])
+        self.assertEqual(status["collection"]["state"], "disabled")
+        self.assertIsNone(status["collection"]["active_episode"])
     def test_release_revokes_on_receiver_without_waiting_for_control_tick(self):
         self.worker._may_move=True;self.client.permitted=True
         self.runtime.submit_xr_frame(self.frame(False))

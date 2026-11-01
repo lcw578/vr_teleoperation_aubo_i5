@@ -13,12 +13,22 @@ SCHEMA = 'aubo_state_action_v1'
 JOINTS = [f'joint_{n}' for n in range(1, 7)]
 
 
+def _allowed_roots():
+    """Bulk-output roots: /data always, plus AUBO_ALLOWED_ROOTS (colon-separated)."""
+    roots = [Path('/data')]
+    for part in os.environ.get('AUBO_ALLOWED_ROOTS', '').split(':'):
+        if part:
+            roots.append(Path(part).expanduser().resolve())
+    return roots
+
+
 def recording_path(value):
-    base = Path('/data/VR_teleoperation_runtime/recordings/aubo')
+    base = Path(os.environ.get('AUBO_RUNTIME_DIR', '/data/VR_teleoperation_runtime'),
+                'recordings', 'aubo')
     path = (base / (time.strftime('%Y%m%d-%H%M%S')+'-'+uuid.uuid4().hex[:8])
             if value == 'auto' else Path(value).expanduser()).resolve()
-    if Path('/data') not in path.parents:
-        raise ValueError('Recording must resolve under /data')
+    if not any(root in path.parents for root in _allowed_roots()):
+        raise ValueError('Recording must resolve under /data or AUBO_ALLOWED_ROOTS')
     if path.exists():
         raise ValueError('Recording directory must be new; existing data is never overwritten')
     return path
