@@ -58,6 +58,19 @@ view = hud.model({collection:{enabled:true,state:'paused',active_episode:0,
   pause_reason:'grip_released',active_episode_elapsed_s:12,last_result:null}}, {connection:'connected'});
 assert.strictEqual(view.title, '第 1 段 · 已暂停');
 assert.match(view.detail, /重新按下右 Grip/);
+for (const collection of [
+  {enabled:true,state:'paused',active_episode:1,pause_reason:'awaiting_grip'},
+  {enabled:true,state:'ready',active_episode:null},
+]) {
+  view = hud.model({clutch_state:'fault',hardware:{fatal:true,stop_result_unknown:true},
+    home_return:{state:'moving'},collection});
+  assert.strictEqual(view.title,'停止未确认 · 采集已锁定');
+  assert.strictEqual(view.tone,'error');
+  assert.match(view.detail,/右 Grip 无法恢复/);
+  assert.doesNotMatch(view.detail + view.promptLine2 + view.promptLine3,/重新接合|按住回原位/);
+}
+view = hud.model({recording_blocked_reason:'硬件故障',collection:{enabled:true,state:'ready'}});
+assert.strictEqual(view.title,'硬件故障 · 采集已锁定');
 assert.strictEqual(hud.model(null, {connection:'unsupported'}).visible, false);
 view = hud.model({collection:{enabled:true,state:'error',error:'disk full',
   last_result:completed}}, {connection:'connected'});
@@ -77,12 +90,34 @@ assert.ok(hudScriptIndex >= 0);
 assert.ok(clientScriptIndex >= 0);
 assert.ok(hudScriptIndex < clientScriptIndex,
   'HUD formatter must load before the XR client');
-assert.match(scriptSources[hudScriptIndex], /\?v=6$/);
-assert.match(scriptSources[clientScriptIndex], /\?v=40$/);
+assert.match(scriptSources[hudScriptIndex], /\?v=9$/);
+assert.match(scriptSources[clientScriptIndex], /\?v=42$/);
 const client = fs.readFileSync(path.join(__dirname,
   '../third_party/vr-teleop-kit/src/vr_teleop_kit/relay/web/client.js'), 'utf8');
 assert.match(client, /fetch\("\/aubo\/status"/);
 assert.match(client, /_renderRecordingHud\(vpose, layer, _time\)/);
 assert.match(client, /AbortController\(\)/);
 
-console.log('Recording HUD status and transition models passed.');
+const free = (hardware, extra = {}) => hud.model({
+  collection:{enabled:false,state:'disabled'}, hardware, ...extra });
+view = free({state:'holding',hot_fast:2,hot_ready:false});
+assert.match(view.title,/等待发送稳定/); assert.match(view.detail,/2\/5/);
+view = free({state:'holding',hot_fast:9,hot_ready:false});
+assert.match(view.title,/等待反馈与静止确认/);
+view = free({state:'holding',hot_fast:9,hot_ready:true});
+assert.match(view.title,/可重新接合/);
+view = free({state:'holding',hot_fast:9,hot_ready:true,underrun_recovering:true});
+assert.match(view.title,/供点恢复中/); assert.doesNotMatch(view.title,/可重新接合/);
+view = free({state:'priming'}); assert.match(view.title,/预热/);
+view = free({state:'braking'}); assert.match(view.title,/制动/);
+view = free({state:'braking',immediate_hot_clutch:true}); assert.match(view.detail,/随时/);
+view = free({state:'holding',immediate_hot_clutch:true,hot_fast:0});
+assert.match(view.title,/可重新接合/); assert.doesNotMatch(view.detail,/快帧/);
+
+view = free({state:'active'}, {engaged:true}); assert.strictEqual(view.title,'遥操已接合');
+view = free({state:'idle',feedback_ready:true}, {require_release:true,xr_input:{right_present:false}});
+assert.strictEqual(view.title,'等待右手柄输入');
+view = free({state:'idle',feedback_ready:false}); assert.strictEqual(view.title,'等待机械臂反馈');
+view = free({state:'holding',fatal:true,underrun_recovering:true});
+assert.strictEqual(view.tone,'error'); assert.match(view.title,/锁定/);
+console.log('Recording HUD and free teleoperation admission states passed.');

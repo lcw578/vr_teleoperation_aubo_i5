@@ -14,6 +14,7 @@ native=load('_aubo_follow');controls=load('_aubo_follow_controls')
 class RedundantFeedbackTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        controls.align_instance_pair()
         cls.a=native.J6Follower(six_axis=True,follow_hz=25)
         cls.b=native.RobotStateObserver()
         cls.a.login('offline',1,'test','test');cls.b.login('offline',1,'test','test')

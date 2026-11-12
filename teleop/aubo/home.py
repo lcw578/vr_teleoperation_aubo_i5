@@ -10,10 +10,6 @@ from .feedback import joints
 DEFAULT_HOME_PATH = Path(os.environ.get('AUBO_RUNTIME_DIR', '/data/VR_teleoperation_runtime'),
                          'config', 'aubo_home_20261029T091225103094Z.json')
 HOME_SPEED_RAD_S = math.radians(20.)
-# 归位流式跟踪容差（2026-11-01 实测修订）：柜端双峰应答下目标-实测差距以
-# ~1.2°/s 稳定增长，3° 在 2.5s 内必撞线（10 次中断的主因）。8° 仍能在
-# 柜端真卡死时 0.4s 内触发（20°/s 流式下），保留"柜子不动就报错"的保护。
-HOME_TRACKING_ERROR_RAD = math.radians(8.)
 HOME_ACCEL_RAD_S2 = math.radians(6.)
 HOME_TOLERANCE_RAD = math.radians(.15)
 

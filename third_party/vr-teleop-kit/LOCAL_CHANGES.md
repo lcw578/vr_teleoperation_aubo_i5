@@ -96,3 +96,24 @@ ignored `_refs` checkout and detects changes to the original algorithm.
 
 Full headset feel, natural local-axis alignment, real Quest dropout causes,
 real AUBO motion and real gripper force have not been validated by these tests.
+
+2026-11-08: The XR sender now revokes input on session visibility/end and page
+visibility events, rejects delayed XR callbacks, and requires a fresh released
+right Trigger after a 500ms resume drain and 200ms continuous release. Inactive
+frames carry no controllers and input_active=false. Source time comes from
+the XR animation timestamp. The AUBO gripper requires explicit active input;
+its timeout disarm preserves same-epoch ordering and clock alignment.
+Browser gate regression: tests/test_xr_input_gate.cjs.
+
+The v42 browser revision limits rearming to right Trigger release; unrelated
+buttons/axes do not gate gripper recovery. Each frame includes input_gate
+diagnostics (reason, frame age, tracking, Trigger state).
+
+
+2026-11-12 baseline: real AUBO USB VR operation is now operator-accepted as
+`aubo-c2-refined90-2026-11-12` (see `docs/aubo_teleop_baseline_2026-11-12.md`).
+The quintic trajectory, BRAKING/HOLDING, hot re-engagement and fixed-tick batch
+executor live in `teleop/aubo/`; they are project adaptations, not upstream
+TCP2CAN features. This finite real-device acceptance is separate from the
+numerical parity tests above and does not certify physical grasp force or
+long-duration unattended operation.

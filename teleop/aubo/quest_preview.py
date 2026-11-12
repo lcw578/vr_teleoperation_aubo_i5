@@ -20,6 +20,18 @@ LOG = logging.getLogger("aubo_quest_preview")
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def check_relay_port(port):
+    """Match the server's reuse policy while still refusing a live listener.
+
+    Uvicorn uses SO_REUSEADDR. A plain bind here can reject its recently closed
+    connections in TIME_WAIT even though a new server could bind successfully.
+    This only checks availability; the server must still handle bind races.
+    """
+    with socket.socket() as probe:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        probe.bind(("127.0.0.1", port))
+
+
 class QuestReceiver:
     """Thin relay transport; all core mutations stay on the control owner.
 
@@ -250,7 +262,8 @@ class ControlLoopTiming:
             last=dict(self.last), maximum=dict(self.maximum))
 
 
-def serve_quest(args, shadow, runtime, stack, tls, *, refresh_feedback, feedback_status, extra_status=None):
+def serve_quest(args, shadow, runtime, stack, tls, *, refresh_feedback, feedback_status, extra_status=None,
+                on_ready=None):
     """Shared original relay, desktop display and control-owner loop. No SDK loading."""
     import mujoco
     import uvicorn
@@ -276,9 +289,11 @@ def serve_quest(args, shadow, runtime, stack, tls, *, refresh_feedback, feedback
         ('<meta charset="utf-8"><title>AUBO Quest</title><h2>' +
         (('AUBO：六轴实体透传' if mode == 'aubo_six_axis_supervised_passthrough' else
           'AUBO：六轴实体跟随' if mode == 'aubo_six_axis_supervised_follow' else 'AUBO：J6 受限实体跟随') if motion_available else 'AUBO：真机禁止运动') + '</h2>') +
-        '<p>实体色＝实际反馈，青色＝候选目标；实际提交见状态字段。网页控制滑条不生效，Trigger 无实体夹爪。</p>'
+        '<p>实体色＝实际反馈，青色＝候选目标；实际提交见状态字段。网页控制滑条不生效。</p>'
+        + ('<p>右手食指 Trigger：按一下闭合，再按一下张开；松开和长按保持。无需右 Grip。摘下头显期间的按键作废；戴回后先松开手柄按键再操作。断连或退出保持夹爪目标与扭矩。夹爪状态见下方 gripper。</p>'
+           if getattr(runtime, 'gripper', None) else '<p>实体夹爪未启用。</p>') +
         '<p>进入头显透视后，视野下缘会显示录制状态卡：当前段号、录制时长、保存确认和连接状态。状态卡只显示后台已确认的信息。</p>'
-        '<p id="query-mode"></p><p id="clutch"></p><p id="collection"></p><p id="home"></p>'
+        '<p id="query-mode"></p><p id="clutch"></p><p id="collection"></p><p id="home"></p><p id="placement"></p><p id="gripper"></p>'
         '<p>操作提示：左 Y 按住直接回原位，松开停止，无需右 Grip。左摇杆左推＝作废当前段并重启循环；右推＝保存并退出当前循环；上推＝保存当前段并结束录制会话。右 Grip 松开或输入超时会暂停当前段，重新按下并成功接合后续录同一段；右摇杆按下可添加事件标记。</p>'
         '<div id="operator-buttons"><button data-command="pause">暂停／解除暂停</button> '
         '<button data-command="restart_episode">开始／保存并重开</button> '
@@ -306,15 +321,24 @@ def serve_quest(args, shadow, runtime, stack, tls, *, refresh_feedback, feedback
         'ready_to_engage:"可接合：下一次按下 Grip 即可控制",'
         'release_grip:"请松开 Grip，再按下接合",engaged:"已接合",fault:"故障锁定：请查看停止状态"};'
         'document.getElementById("clutch").textContent=labels[s.clutch_state]||"";'
+        'const g=s.gripper;document.getElementById("gripper").textContent=g?.enabled?'
+        '"夹爪："+(g.fault?"故障，后续开合已锁定："+g.fault:g.state==="moving"?"正在"+(g.commanded_closed?"闭合":"张开"):'
+        'g.commanded_closed?"闭合目标":"张开目标")+"；右手食指按一下切换"+(!g.input_ready?"；戴好头显，先松开手柄按键再按 Trigger":""):"";'
         'const h=s.home_return;const homes={disabled:"不可用",idle:"待请求",waiting_for_stop:"等待停稳",'
         'ready:"已准备：按住左 Y 回位，无需右 Grip",moving:"正在回位（松开左 Y 停止）",stopping:"正在确认停稳",'
         'complete:"已在原位并停稳",cancelled:"已取消，需重新请求",failed:"失败，请检查原因"};'
         'document.getElementById("home").textContent=h?"运动回位："+(homes[h.state]||h.state)+'
         '(h.max_error_deg!=null?"；最大关节误差 "+h.max_error_deg.toFixed(3)+"°":"")+(h.error?"；"+h.error:""):"";'
+        'const pl=s.placement;const legs={transfer:"左 Y 中转位",basket:"篮筐点"};'
+        'const phases={idle:"待请求",waiting_for_stop:"等待停稳",ready:"准备运动",moving:"运动中",'
+        'stopping:"确认停稳",complete:"已到篮筐并停稳",cancelled:"已取消",failed:"失败"};'
+        'document.getElementById("placement").textContent=pl?.enabled?"左 X 自动搬运："+'
+        '(phases[pl.state]||pl.state)+(pl.segment?"；目标："+legs[pl.segment]:"")+"；再次按 X 取消；无需 Grip"+'
+        '(pl.error?"；"+pl.error:""):"";'
         'const c=s.collection||{state:"disabled"};'
         'const states={disabled:"录制未启用",ready:"待录制（向左推摇杆开始）",recording:"录制中",paused:"录制已暂停，等待 Grip 重新接合",saving:"保存中",error:"录制失败"};'
         'const results={saved:"已保存",invalid:"已标记无效（原始数据保留）",interrupted:"未正常结束"};'
-        'document.getElementById("collection").textContent=(states[c.state]||c.state)+"；"+'
+        'document.getElementById("collection").textContent=(s.recording_blocked_reason?"故障锁定，采集不可继续":(states[c.state]||c.state))+"；"+'
         '(c.active_episode!=null?"当前段 "+c.active_episode+"；":"")+'
         '(c.state==="paused"?"暂停原因："+(c.pause_reason||"等待接合")+"；":"")+'
         '(c.last_result?"最近段 "+c.last_result.episode_id+"："+(results[c.last_result.disposition]||c.last_result.disposition)+"（已落盘）；":"")+'
@@ -347,6 +371,11 @@ def serve_quest(args, shadow, runtime, stack, tls, *, refresh_feedback, feedback
         viewer.cam.lookat[:] = [.2, 0., .35]
         viewer.cam.distance = 1.4
         shadow._preview_ghost = mujoco.MjData(shadow.geometry.model)
+    # Imports, server startup and the first GL window can stall Python while
+    # native feedback keeps arriving. Start supervised SDK polling only after
+    # that one-time work, then require fresh feedback before the control loop.
+    if on_ready is not None:
+        on_ready()
     LOG.info("Quest ready: mode=%s motion_available=%s recording=%s; flange tool; HMD yaw OFF", mode, motion_available,
              'READY (button managed)' if getattr(runtime, 'recorder', None) else 'OFF')
     LOG.info("Quest: %s://<PC hotspot/Wi-Fi IP>:%d/ ; status: /aubo ; no need to run a second relay",
@@ -374,7 +403,7 @@ def serve_quest(args, shadow, runtime, stack, tls, *, refresh_feedback, feedback
                 candidate_velocity_limits_deg_s=[math.degrees(v) for v in shadow.session.policy.velocity_rad_s],
                 core_frequency_hz=1./runtime.control_dt,
                 tool_frame="wrist3_Link/flange", pose_frame="model base (SDK base Z offset documented separately)",
-                rotation=args.rotation, head_yaw_alignment=False, gripper_installed=False,
+                rotation=args.rotation, head_yaw_alignment=False,
                 quest_to_base=shadow.core.config.r_calib,
                 workspace_alignment=getattr(args,"workspace_alignment",None),
                 alignment_reference_required=runtime.expected_reference_id,
@@ -385,6 +414,7 @@ def serve_quest(args, shadow, runtime, stack, tls, *, refresh_feedback, feedback
                 local_revoke_requests=shadow.session.backend.stop_requests,
                 feedback_age_s=time.monotonic()-sample.received_monotonic_s if sample else None)
             value.setdefault('recording', False)
+            value.setdefault('gripper_installed', False)
             value["relay_connected"] = receiver.connected.is_set()
             age = value["xr_input"]["valid_frame_age_s"]
             value["quest_input_fresh"] = age is not None and age <= shadow.session.policy.input_max_age_s
@@ -487,8 +517,7 @@ def main(argv=None):
     with ExitStack() as stack:
         lock = stack.enter_context((ROOT / ".teleop_session.lock").open("a"))
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        with socket.socket() as probe:
-            probe.bind(("127.0.0.1", args.relay_port))
+        check_relay_port(args.relay_port)
         tls = {} if args.usb else dict(ssl_keyfile=str(ROOT / "certs/key.pem"),
                                        ssl_certfile=str(ROOT / "certs/cert.pem"))
         if any(not Path(p).is_file() for p in tls.values()):

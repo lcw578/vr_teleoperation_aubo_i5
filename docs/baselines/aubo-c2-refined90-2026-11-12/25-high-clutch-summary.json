@@ -1,0 +1,81 @@
+{
+  "program_passed": true,
+  "motion_profile": {
+    "name": "balanced",
+    "velocity_deg_s": 25.0,
+    "acceleration_deg_s2": 75.0,
+    "jerk_deg_s3": 600.0,
+    "tick_s": 0.005,
+    "max_step_deg": 0.125
+  },
+  "reference_peak_deg_s": 23.999942189427063,
+  "reference_peak_acceleration_deg_s2": 73.65169396693454,
+  "max_step_deg": 0.11999829757614107,
+  "native_step_limit_deg": 0.125,
+  "max_observed_command_feedback_delta_deg": 3.2649505861164396,
+  "braking_tracking_limit_deg": 7.5,
+  "holding_tolerance_deg": 0.1,
+  "five_releases_deg_s": [
+    23.999807079039872,
+    23.999807079039872,
+    23.99566375892814,
+    23.999807079039872,
+    23.99566375892814
+  ],
+  "brakes": [
+    {
+      "release_speed_deg_s": 23.999807079039872,
+      "planned_duration_s": 0.48917490500605926,
+      "release_to_holding_s": 0.6905732430000171,
+      "directional_overshoot_deg": 0.0013294029650831832,
+      "holding_admission_error_deg": 0.0013294029650831832
+    },
+    {
+      "release_speed_deg_s": 23.999807079039872,
+      "planned_duration_s": 0.48917490500605926,
+      "release_to_holding_s": 0.6949830539999766,
+      "directional_overshoot_deg": 0.0,
+      "holding_admission_error_deg": 0.0006283774036411731
+    },
+    {
+      "release_speed_deg_s": 23.99566375892814,
+      "planned_duration_s": 0.4864442450692678,
+      "release_to_holding_s": 0.6273284709998279,
+      "directional_overshoot_deg": 0.003749586175135857,
+      "holding_admission_error_deg": 0.003394416338295194
+    },
+    {
+      "release_speed_deg_s": 23.999807079039872,
+      "planned_duration_s": 0.48917490500605926,
+      "release_to_holding_s": 0.6907720159999826,
+      "directional_overshoot_deg": 0.00011362929282091344,
+      "holding_admission_error_deg": 0.0006305118377568021
+    },
+    {
+      "release_speed_deg_s": 23.99566375892814,
+      "planned_duration_s": 0.4864442450692678,
+      "release_to_holding_s": 0.6810556640000414,
+      "directional_overshoot_deg": 0.003749586175135857,
+      "holding_admission_error_deg": 0.003394416338295194
+    },
+    {
+      "release_speed_deg_s": 0.0,
+      "planned_duration_s": 1.9073486328125e-08,
+      "release_to_holding_s": 0.15592779700000392,
+      "directional_overshoot_deg": 0.0,
+      "holding_admission_error_deg": 0.0010518491321819636
+    }
+  ],
+  "motion_zero_restarts": 0,
+  "final_stop_confirmed": true,
+  "hard_fault": false,
+  "qualification_note": "Finite program/reference and callback checks plus operator acceptance; free VR45 pending, physical FIFO occupancy not instrumented.",
+  "objective_passed": true,
+  "maximum_batch_start_interval_ms": 57.23663799994938,
+  "net_debt_batches_submitted": 0,
+  "estimated_underrun_events": 0,
+  "physical_fifo_certified": false,
+  "operator_smoothness_passed": true,
+  "controlled_execution_quality_qualified": true,
+  "overall_accepted": true
+}

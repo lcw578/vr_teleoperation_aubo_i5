@@ -111,7 +111,8 @@ class RawRecorder:
 
     def record(self, kind, *, stamp=None, **data):
         with self._lock:
-            if self._paused and kind in ('xr', 'sdk_command'):
+            if self._paused and (kind == 'xr' or (kind == 'sdk_command' and
+                    data.get('attempt', {}).get('control_source') != 'placement')):
                 return False
             return self._put(kind, self.clock() if stamp is None else stamp, data)
 
@@ -176,7 +177,7 @@ class RawRecorder:
             self._paused_total_s = 0.
             return ok
 
-    def sample(self, *, feedback, hardware, paused=False, candidate=None, stamp=None, control_source='teleop'):
+    def sample(self, *, feedback, hardware, paused=False, candidate=None, stamp=None, control_source='teleop', gripper=None):
         now = self.clock() if stamp is None else stamp
         with self._lock:
             if (self._active is None or self._paused or
@@ -194,7 +195,8 @@ class RawRecorder:
                 candidate_q_rad=list(candidate.q_rad) if candidate else None,
                 hardware_state=hardware['state'], hardware_fault=hardware.get('fault'),
                 fatal=hardware.get('fatal', False), stop_result_unknown=hardware.get('stop_result_unknown', False),
-                operator_paused=paused, control_source=control_source, last_attempt=hardware.get('last_attempt')))
+                operator_paused=paused, control_source=control_source, last_attempt=hardware.get('last_attempt'),
+                gripper=gripper))
 
     def _run(self):
         episodes = {}
@@ -223,6 +225,7 @@ class RawRecorder:
                             'grip_released', 'operator_pause', 'episode_started',
                             'input_timeout',
                             'episode_finished', 'episode_invalid', 'session_finished', 'operator_software_reset',
+                            'placement_requested', 'placement_segment_completed', 'placement_complete', 'placement_cancelled',
                             'home_requested', 'home_ready', 'home_completed', 'home_cancelled',
                             'home_button_released', 'home_button_released_or_expired')
                     if row['kind'] == 'episode_end':

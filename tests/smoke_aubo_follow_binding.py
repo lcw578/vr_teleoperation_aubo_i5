@@ -21,13 +21,15 @@ assert module.six_axis_follow_period_s == J6FollowWorker.six_axis_follow_period_
 assert module.send_max_gap_s == J6FollowWorker.send_max_gap_s == .65
 assert module.sdk_budget_s == J6FollowWorker.sdk_budget_s == .5
 client=module.J6Follower() # Vendor object is lazy until login.
-assert {n for n in dir(client) if not n.startswith('_')} == {
-    'login','logout','prepare','snapshot','arm','revision','revoke','send_offset','stop',
-    'start_waypoint_feedback','waypoint_feedback','send_joints','enter_passthrough',
-    'attach_state_observer','abandon_cleanup','waypoint_feedback_since'}
+assert {'send_priming','finish_priming','attach_process_feedback','attach_state_cache'} <= set(dir(client))
+assert module.supports_hot_clutch and module.priming_max_s == J6FollowWorker.priming_max_s == 2.5
+assert module.supports_graded_hot_feedback
+assert module.hot_state_max_age_s == J6FollowWorker.hot_state_max_age_s == .5
+assert module.hot_joint_max_age_s == J6FollowWorker.hot_joint_max_age_s == .5
+assert module.priming_fast_s == J6FollowWorker.priming_fast_s == .04
+assert module.supports_priming
 observer=module.RobotStateObserver()
-assert {n for n in dir(observer) if not n.startswith('_')} == {
-    'login','logout','query_state','invalidate','abandon_cleanup','waypoint_feedback'}
+assert {'query_state','start_waypoint_feedback','waypoint_feedback_since'} <= set(dir(observer))
 try:observer.waypoint_feedback()
 except RuntimeError as exc:assert 'not enabled' in str(exc)
 else:raise AssertionError('Unsubscribed observer feedback accepted')
@@ -40,7 +42,7 @@ assert client.revision()==0
 assert client.revoke()==1
 for name,args in [('prepare',()),('snapshot',()),('arm',(1,)),('send_offset',(0.,1)),('stop',()),('logout',()),
                   ('start_waypoint_feedback',()),('waypoint_feedback',()),('waypoint_feedback_since',(0,)),
-                  ('send_joints',([0.]*6,1)),('enter_passthrough',(1,))]:
+                  ('send_joints',([0.]*6,1)),('enter_passthrough',(1,)),('send_priming',(1,)),('finish_priming',(1,))]:
     try:getattr(client,name)(*args)
     except RuntimeError as exc:assert 'Not connected' in str(exc)
     else:raise AssertionError('Unconnected SDK operation accepted: '+name)

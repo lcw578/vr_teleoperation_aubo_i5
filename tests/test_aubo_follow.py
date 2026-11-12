@@ -1,10 +1,12 @@
 """Hardware follower ordering, stop and blocking races; never connects a robot."""
 import asyncio
+import io
 import json
 import math
 import os
 from pathlib import Path
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -70,6 +72,15 @@ class FollowTests(unittest.TestCase):
             for args in (["--host","192.168.1.5"],["--execute-j6"],["--preview-speed-deg-s","nan"]):
                 with self.assertRaises(SystemExit):main(args)
             load.assert_not_called()
+    def test_tcp_ack_scope_rejects_multiple_connections_and_other_motion_modes(self):
+        with patch('sys.stderr'),patch('teleop.aubo.quest_follow.load_follow_native') as load:
+            for args in (['--tcp-ack-mode','quickack'],
+                         ['--execute-j6','--tcp-ack-mode','quickack'],
+                         ['--execute-six-axis','--waypoint-feedback','--tcp-ack-mode','quickack'],
+                         ['--execute-six-axis','--waypoint-feedback','--command-mode','follow',
+                          '--parallel-state-query','--tcp-ack-mode','quickack']):
+                with self.subTest(args=args),self.assertRaises(SystemExit):main(args)
+            load.assert_not_called()
     def test_preview_speed_changes_only_candidate_policy(self):
         q=[.18,.26,2.37,2.04,1.51,.8]
         slow=make_shadow(q,[[-3.05,3.05]]*6,preview_speed_deg_s=.5)
@@ -93,8 +104,20 @@ class FollowTests(unittest.TestCase):
         with patch('sys.stderr'),patch('teleop.aubo.quest_follow.load_follow_native') as load:
             for args in (['--diagnostic-output','/data/test.jsonl'],
                          ['--execute-j6','--diagnostic-output','/tmp/test.jsonl','--duration','10'],
-                         ['--execute-j6','--diagnostic-output','/data/test.jsonl','--duration','301']):
+                         ['--execute-j6','--diagnostic-output','/data/test.jsonl','--duration','1801']):
                 with self.assertRaises(SystemExit):main(args)
+            load.assert_not_called()
+    def test_1800_second_diagnostics_pass_duration_validation_without_loading_sdk(self):
+        # Stop at the following missing-host check, before opening any files,
+        # sockets or SDK. This exercises the Python boundary used by the launcher.
+        with tempfile.TemporaryDirectory() as directory,patch.dict(
+                os.environ,{'AUBO_ALLOWED_ROOTS':directory}),patch('sys.stderr',new_callable=io.StringIO) as error,patch(
+                'teleop.aubo.quest_follow.load_follow_native') as load:
+            with self.assertRaises(SystemExit):
+                main(['--execute-six-axis','--waypoint-feedback','--duration','1800',
+                      '--diagnostic-output',str(Path(directory)/'test.jsonl')])
+            self.assertIn('Explicit execution requires host, port and user',error.getvalue())
+            self.assertNotIn('Diagnostics require',error.getvalue())
             load.assert_not_called()
     def test_diagnostics_preserve_feedback_and_each_send_without_extra_queries(self):
         self.worker=J6FollowWorker(self.client,[0.]*6,j6_range_rad=(-3.05,3.05),clock=self.clock,diagnostics=True)
@@ -372,6 +395,41 @@ class FollowTests(unittest.TestCase):
         self.assertTrue(self.worker.status()["stop_result_unknown"])
         self.assertFalse(self.worker.status()["stop_confirmed"])
         self.assertFalse(self.offer(session=2));self.worker._cycle();self.assertEqual(self.client.stops,1)
+
+    def test_serial_stop_waits_through_paused_and_resumed_for_stopped(self):
+        self.arm();self.worker.revoke('grip_released')
+        original=self.client.snapshot
+        states=iter((2,3,0,0,0,0));observed=[]
+        def transitioning():
+            self.client.state=next(states,0);observed.append(self.client.state)
+            self.assertFalse(self.client.permitted)
+            self.assertFalse(self.worker.status()['stop_confirmed'])
+            return original()
+        self.client.snapshot=transitioning
+        self.stop_confirm()
+        status=self.worker.status()
+        self.assertEqual(observed[:2],[2,3])
+        self.assertTrue(status['stop_confirmed']);self.assertFalse(status['fatal'])
+        self.assertEqual(status['last_snapshot']['state']['data'],0)
+        self.assertEqual(self.client.sent,[])
+
+    def test_serial_stop_never_confirms_persistent_paused_state(self):
+        self.arm();self.client.state=2;self.worker.revoke('grip_released')
+        self.stop_confirm()
+        status=self.worker.status()
+        self.assertFalse(status['stop_confirmed']);self.assertTrue(status['stop_result_unknown'])
+        self.assertEqual(status['stop_confirmation_error']['message'],'stop_confirmation_timeout')
+        self.assertFalse(self.client.permitted)
+
+    def test_serial_stop_rejects_unknown_state_and_normal_observation_rejects_paused(self):
+        self.client.state=2
+        with self.assertRaisesRegex(RuntimeError,'Unexpected controller state'):
+            self.worker._observe()
+        self.client.state=0;self.arm()
+        self.client.state=99;self.worker.revoke('grip_released');self.stop_confirm()
+        status=self.worker.status()
+        self.assertFalse(status['stop_confirmed']);self.assertTrue(status['stop_result_unknown'])
+        self.assertEqual(status['stop_confirmation_error']['message'],'Unexpected controller state')
     def test_failed_stop_is_latched_and_never_retried(self):
         self.arm();self.client.stop_rc=10001;self.worker.revoke("grip_released");self.stop_confirm()
         self.assertTrue(self.worker.status()["operator_stop_required"])

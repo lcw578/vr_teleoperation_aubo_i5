@@ -122,10 +122,51 @@
   // Single-arm AUBO uses the upstream per-hand algorithm for the right hand.
   const ACTIVE_HANDS = new URL(location.href).searchParams.get("hands") === "both"
     ? ["left", "right"] : ["right"];
+  const createXRInputGate = () => {
+    let lastFrame = null, releaseSince = null, resumeAfter = Infinity, active = false;
+    let diagnostics = {reason:"initial_release_required"};
+    const reset = (now) => {
+      lastFrame = null; releaseSince = null; resumeAfter = now + 500; active = false;
+    };
+    const update = (now, frameTime, visibility, controllers, viewerTracked) => {
+      const right = controllers.right;
+      diagnostics = {reason:"resume_wait", frame_age_ms:now-frameTime,
+        viewer_tracked:viewerTracked, right_present:!!right,
+        trigger_pressed:right?.buttons?.[0]?.p, trigger_value:right?.buttons?.[0]?.v};
+      // XR callback timestamps describe the sampled frame. performance.now()
+      // alone would relabel a delayed callback as a new controller sample.
+      const invalid = visibility !== "visible" ? "headset_not_visible" :
+        !viewerTracked ? "viewer_not_tracked" :
+        !right || right.buttons.length < 2 ? "right_not_tracked" :
+        !Number.isFinite(frameTime) || !Number.isFinite(now) ||
+          now - frameTime > 100 || frameTime - now > 50 ? "delayed_frame" : null;
+      if (invalid) {
+        diagnostics.reason = invalid;
+        reset(now); return false;
+      }
+      if (lastFrame === null || frameTime <= lastFrame || frameTime - lastFrame > 200) reset(now);
+      lastFrame = frameTime;
+      if (active) { diagnostics.reason = "active"; return true; }
+      // On resumption, drain deferred state changes before accepting a new
+      // press. Only the assigned Trigger gates this release; optional gamepad
+      // buttons and unused axes must not prevent the gripper from recovering.
+      const released = right.buttons[0].p === false;
+      if (!released) { diagnostics.reason = "release_trigger"; releaseSince = null; return false; }
+      if (releaseSince === null) releaseSince = now;
+      active = now >= resumeAfter && now - releaseSince >= 200;
+      diagnostics.reason = active ? "active" : "resume_wait";
+      return active;
+    };
+    return { reset, update, diagnostics:() => diagnostics };
+  };
+  const xrInputGate = createXRInputGate();
   let xrEpoch = crypto.randomUUID(), xrSeq = 0;
   // Spatial identity survives a WebSocket reconnect, but never an XR reset.
   let xrReferenceId = crypto.randomUUID();
-  const newReferenceEpoch = () => { xrEpoch = crypto.randomUUID(); xrSeq = 0; };
+  const newReferenceEpoch = () => {
+    xrEpoch = crypto.randomUUID(); xrSeq = 0;
+    xrInputGate.reset(performance.now());
+  };
   const newSpatialReference = () => { xrReferenceId = crypto.randomUUID(); newReferenceEpoch(); };
   const rotationSelect = $("rotation-mode");
   rotationSelect.addEventListener("change", () => wsSend({type:"config_update", config:{rotation_mode:rotationSelect.value}}));
@@ -902,6 +943,23 @@
   let calibHandednessSeen = new Set();
   const CALIB_GRIP_THRESHOLD = 0.7;  // both grip values >= this triggers capture
 
+  const suspendXRInput = () => {
+    xrInputGate.reset(performance.now());
+    if (xrSession && !calibMode) {
+      // Visibility events still revoke input when XR animation callbacks stop.
+      wsSend({ type: "xr_frame", epoch:xrEpoch, reference_id:xrReferenceId, seq:xrSeq++,
+        t_client:performance.now(), input_active:false,
+        xr_visibility_state:xrSession.visibilityState, controllers:{}, viewer:null });
+    }
+  };
+  const bindXRInputLifecycle = (session) => {
+    session.addEventListener("visibilitychange", suspendXRInput);
+    session.addEventListener("end", suspendXRInput);
+    suspendXRInput();
+  };
+  document.addEventListener("visibilitychange", () => { if (xrSession) suspendXRInput(); });
+  window.addEventListener("pagehide", suspendXRInput);
+
   if (!navigator.xr) {
     ui.xrState = "unsupported"; refreshPill();
     enterBtn.textContent = "WebXR unavailable";
@@ -933,6 +991,7 @@
         .catch(() => xrSession.requestReferenceSpace("local"));
       newSpatialReference();
       xrRefSpace.addEventListener("reset", newSpatialReference);
+      bindXRInputLifecycle(xrSession);
       xrSession.addEventListener("end", () => {
         newSpatialReference();
         xrSession = null; xrRefSpace = null;
@@ -1078,6 +1137,7 @@
           .catch(() => xrSession.requestReferenceSpace("local"));
         newSpatialReference();
         xrRefSpace.addEventListener("reset", newSpatialReference);
+        bindXRInputLifecycle(xrSession);
         xrSession.addEventListener("end", newSpatialReference);
 
         calibMode = true;
@@ -1689,9 +1749,14 @@
       };
     }
 
-    // Empty-controller frames distinguish a running XR loop from tracking loss.
+    const inputActive = xrInputGate.update(performance.now(), _time,
+      xrSession.visibilityState, controllers, vp !== null);
+    // Suspended frames revoke input, and never carry deferred action buttons.
     wsSend({ type: "xr_frame", epoch:xrEpoch, reference_id:xrReferenceId, seq:xrSeq++,
-             t_client:performance.now(), controllers, viewer,
+             t_client:_time, input_active:inputActive,
+             input_gate:xrInputGate.diagnostics(),
+             xr_visibility_state:xrSession.visibilityState,
+             controllers:inputActive ? controllers : {}, viewer,
              calibration:{readoutOffset, activeHands:ACTIVE_HANDS} });
   }
 })();

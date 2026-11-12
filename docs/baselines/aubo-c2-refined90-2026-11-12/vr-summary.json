@@ -1,0 +1,130 @@
+{
+  "extracted_wall_time": "2026-11-12T20:37:12.918889+08:00",
+  "max_step_deg": 0.22499825644710972,
+  "cold_entries": 1,
+  "hot_resumes": 7,
+  "hot_response_ms": {
+    "n": 7,
+    "p50": 4.3114299996886984,
+    "p95": 4.771204800226769,
+    "max": 4.806480000297597
+  },
+  "motion_zero_restarts": 2,
+  "goal_minus_reference_max_axis_deg": {
+    "n": 7639,
+    "p50": 2.074383787302878,
+    "p95": 17.06050197650372,
+    "max": 66.23922568874347
+  },
+  "reference_minus_feedback_max_axis_deg": {
+    "n": 7639,
+    "p50": 1.2984029694936652,
+    "p95": 4.883005904948553,
+    "max": 6.598964602139478
+  },
+  "reference_peak_deg_s": 44.99917557342328,
+  "active_frames_over_24deg_s": 0.2127241785574028,
+  "active_frames_over_40deg_s": 0.07566435397303312,
+  "moving_frames_reference_peak_deg_s": {
+    "n": 5153,
+    "p50": 17.861345141712402,
+    "p95": 44.95861619214285,
+    "max": 44.99917557342328
+  },
+  "deferred_active_batches": 2,
+  "active_batches": 7639,
+  "active_rpc_ms": {
+    "n": 7639,
+    "p50": 7.866304999879503,
+    "p95": 22.953921500038625,
+    "max": 65.6501040002695
+  },
+  "active_feedback_age_ms": {
+    "n": 7639,
+    "p50": 13.752305999787495,
+    "p95": 25.401403300293165,
+    "max": 44.32349799981239
+  },
+  "active_begin_s": 2214.218574968,
+  "active_end_s": 2325.416170432,
+  "control_step_ms": {
+    "n": 111,
+    "p50": 0.4680209999605722,
+    "p95": 1.0624090000419528,
+    "max": 2.366134000112652
+  },
+  "source_scope": "This log lacks continuous raw hand/TCP pose and synchronized headset/host clocks; no absolute hand-to-motion latency claim.",
+  "active_wall_s": 102.604742859,
+  "stream_wall_s": 114.17486551299999,
+  "reference_peak_acceleration_deg_s2": 179.81790200233064,
+  "axis_excursions_deg": [
+    169.76500410373268,
+    79.43801824557119,
+    62.556527815609535,
+    102.68877618978559,
+    109.23742837730501,
+    69.64134643788037
+  ],
+  "batch_start_interval_ms": {
+    "n": 8516,
+    "p50": 10.053974499896867,
+    "p95": 24.597771750109132,
+    "max": 74.50929700007691
+  },
+  "active_start_interval_ms": {
+    "n": 7631,
+    "p50": 10.068301000046631,
+    "p95": 24.575571500008664,
+    "max": 74.50929700007691
+  },
+  "steady_net_debt_batches_submitted": 0,
+  "steady_recovery_pending_batches_submitted": 0,
+  "reference_endpoint_to_callback_fit": {
+    "lag_ms": 99.0,
+    "rms_deg": 0.21029530696745505,
+    "moving_samples": 2941,
+    "scope": "Queue plus transport/feedback. Global time shift, not synchronized hand-to-robot latency."
+  },
+  "holding_admission_max_axis_error_deg": {
+    "n": 8,
+    "p50": 0.004728534876843268,
+    "p95": 0.006568292778297289,
+    "max": 0.006945937750473623
+  },
+  "release_to_holding_s": {
+    "n": 8,
+    "p50": 0.37689732450030533,
+    "p95": 0.4344761334998111,
+    "max": 0.4416810339998847
+  },
+  "recovery_events": [
+    {
+      "seconds_since_first_active": 39.34039506199997,
+      "detected_before_submit": true,
+      "discarded_wall_ticks_cumulative": 3,
+      "reference_before_max_speed_deg_s": 43.951907946800155,
+      "reference_after_max_speed_deg_s": 0.0,
+      "quiet_wait_s": 0.0
+    },
+    {
+      "seconds_since_first_active": 39.544000453999615,
+      "detected_before_submit": false,
+      "discarded_wall_ticks_cumulative": 13,
+      "reference_before_max_speed_deg_s": 2.7733660528802977,
+      "reference_after_max_speed_deg_s": 0.0,
+      "quiet_wait_s": 0.0
+    }
+  ],
+  "IK_target_250ms_mean_speed_deg_s": {
+    "n": 7496,
+    "p50": 10.73510392170132,
+    "p95": 47.90663960452021,
+    "max": 129.53775615940356
+  },
+  "target_demand_fraction_over45": 0.058297758804695836,
+  "operator_feedback": "我认为效果非常好，跟随的不错",
+  "acceptance_scope": "Post-emergency-restart session; finite observed real VR operation, not unattended/endurance or all-workspace certification.",
+  "comparison_note": "Different operator trajectories/workspace; not a matched A/B latency experiment.",
+  "plot_selected_session": 927,
+  "plot_joint": 5
+}

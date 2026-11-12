@@ -1,6 +1,7 @@
 #pragma once
 // Offline SDK double for compiling the actual binding, never linked to vendor SDK.
 #include <atomic>
+#include <vector>
 #include <chrono>
 #include <mutex>
 #include <thread>
@@ -10,7 +11,7 @@ struct JointVelcAccParam{double jointPara[6]{1,1,1,1,1,1};};
 struct wayPoint_S{double jointpos[6]{};};
 enum RobotState{RobotStopped=0,RobotRunning=1,RobotPaused=2,RobotResumed=3};
 enum RobotMoveControlCommand{RobotMoveStop=0};
-struct RobotDiagnosis{bool armPowerStatus=true,softEmergency=false,remoteEmergency=false,robotCollision=false,jointErrorStatus=false;};
+struct RobotDiagnosis{bool orpeStatus=true;unsigned short macTargetPosBufferSize=1200,macTargetPosDataSize=0;unsigned char macDataInterruptWarning=0;bool armPowerStatus=true,softEmergency=false,remoteEmergency=false,robotCollision=false,jointErrorStatus=false;};
 struct JointRangeOfMotion{bool enable=true;struct Range{double minValue=-3,maxValue=3;}rangeValues[6];};
 }
 namespace fake_follow {
@@ -20,7 +21,8 @@ inline std::atomic<bool> block_b{false},b_entered{false};
 inline std::atomic<bool> push_enabled{true};
 inline std::atomic<bool> push_enabled_b{true};
 inline std::mutex periodic_push_mutex;
-inline std::atomic<double> joint{0};
+inline std::atomic<double> joint{0},send_delay_s{0};
+inline std::atomic<int> batch_points{0},batch_calls{0},watermark_raw{0};
 using Callback=void(*)(const aubo_robot_namespace::wayPoint_S*,void*);
 inline std::atomic<bool> push_on_observation_read{false};
 inline std::atomic<int> interleaved_pushes{0};
@@ -45,6 +47,12 @@ class ServiceInterface {
  public:
  ~ServiceInterface(){robotServiceLogout();}
  int robotServiceLogin(const char*,int,const char*,const char*){return 0;}
+ int robotServiceSetRealTimeRoadPointPush(bool enabled){
+  if(!enabled)return robotServiceRegisterRealTimeRoadPointCallback(nullptr,nullptr);
+  return 0;
+ }
+ int robotServiceSetRealTimeJointStatusPush(bool){return 0;}
+ int robotServiceSetRealTimeEndSpeedPush(bool){return 0;}
  int robotServiceLogout(){quit_=true;if(push_.joinable())push_.join();return 0;}
  int robotServiceRegisterRealTimeRoadPointCallback(Callback cb,void*arg){
   quit_=true;if(push_.joinable())push_.join();callback_=cb;arg_=arg;
@@ -60,14 +68,15 @@ class ServiceInterface {
   v=static_cast<aubo_robot_namespace::RobotState>(fake_follow::state.load());return fake_follow::query_rc;
  }
  int robotServiceGetJointAngleInfo(aubo_robot_namespace::JointParam&q){for(auto&v:q.jointPos)v=fake_follow::joint;return 0;}
- int robotServiceGetRobotDiagnosisInfo(aubo_robot_namespace::RobotDiagnosis&){return 0;}
+ int robotServiceGetRobotDiagnosisInfo(aubo_robot_namespace::RobotDiagnosis&v){v.macTargetPosDataSize=fake_follow::watermark_raw;return 0;}
  int robotServiceGetJointRangeOfMotion(aubo_robot_namespace::JointRangeOfMotion&){return 0;}
  int robotServiceGetIsRealRobotExist(bool&v){v=true;return 0;}
  int robotServiceFollowModeJointMove(double*){++fake_follow::sends;return 0;}
  int rootServiceRobotMoveControl(aubo_robot_namespace::RobotMoveControlCommand){++fake_follow::stops;return 0;}
  int robotServiceEnterTcp2CanbusMode(){return 0;}
  int robotServiceLeaveTcp2CanbusMode(){return 0;}
- int robotServiceSetRobotPosData2Canbus(double*){return 0;}
+ int robotServiceSetRobotPosData2Canbus(double*){std::this_thread::sleep_for(std::chrono::duration<double>(fake_follow::send_delay_s.load()));return 0;}
+ int robotServiceSetRobotPosData2Canbus(const std::vector<aubo_robot_namespace::wayPoint_S>&p){fake_follow::batch_points+=p.size();++fake_follow::batch_calls;std::this_thread::sleep_for(std::chrono::duration<double>(fake_follow::send_delay_s.load()));return 0;}
  int robotServiceInitGlobalMoveProfile(){return 0;}
  int robotServiceSetGlobalMoveJointMaxAcc(aubo_robot_namespace::JointVelcAccParam v){acc_=v;return 0;}
  int robotServiceSetGlobalMoveJointMaxVelc(aubo_robot_namespace::JointVelcAccParam v){vel_=v;return 0;}

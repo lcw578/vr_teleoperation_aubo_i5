@@ -190,6 +190,32 @@ class AuboShadowCoordinator:
             self._revoke("core_exception")
             raise
 
+    def reanchor_after_priming(self, q_anchor):
+        """Drop warmup hand displacement without changing the held clutch session."""
+        q_anchor=joints(q_anchor)
+        if (not self.session.engaged or not self.grip or self.input_time is None or
+                not 0<=self.clock()-self.input_time<=.1):
+            return False
+        with self.core._lock:
+            ctrl=self.core._hand_ctrls.get('right')
+            if ctrl is None or not ctrl['buttons'][1]['p']:return False
+            position=np.asarray(ctrl['position'],float)
+            x,y,z,w=ctrl['orientation']
+            arm=self.core._arms['right']
+            # The core uses a non-reentrant lock. Seed and anchor atomically
+            # here without calling its public lock-taking seed/observe APIs.
+            arm['measured']=self.geometry.qpos(q_anchor)
+            arm['qpos']=arm['measured'].copy()
+            arm.update(ramp_active=False,target=None,pos_filt=None,quat_filt=None)
+            arm['mapper'].disengage()
+            self.core._anchor_mapper('right',arm,position,np.array([w,x,y,z]),None,'PRIMING-DONE')
+            arm.update(last_grip=True,require_release=False,needs_reanchor=False)
+            self.session.last_reference=q_anchor
+            self.session.last_submit_s=self.clock()
+            self.session.pending=None
+            self.last_candidate=None
+        return True
+
     def _tick(self, *, joint_target=None):
         self.last_candidate = None
         if self.closed or self.input_time is None:
@@ -245,6 +271,8 @@ def normalize_xr_frame(frame):
     """Validate every transport event before latest-only caching; no core mutation."""
     if not isinstance(frame, dict):
         raise ValueError("XR frame must be an object")
+    if frame.get('input_active', True) is not True:
+        raise ValueError('XR input suspended; fresh visible input and release required')
     if (frame.get("type") != "xr_frame" or not isinstance(frame.get("epoch"), str) or not frame["epoch"] or
             type(frame.get("seq")) is not int or frame["seq"] < 0 or
             not math.isfinite(float(frame["t_client"]))):

@@ -2,11 +2,22 @@
 #define AUBO_FOLLOW_TEST_BEFORE_PUSH_READ fake_follow::before_push_read
 #define AUBO_FOLLOW_TEST_PUSH_TIMESTAMP fake_follow::push_timestamp
 #include "../../teleop/aubo/native/follow.cpp"
+namespace aubo_stop_compat {
+int request_slow_stop(ServiceInterface& sdk){
+ return sdk.rootServiceRobotMoveControl(aubo_robot_namespace::RobotMoveStop);
+}
+}
 PYBIND11_MODULE(_aubo_follow_controls,m){
  m.def("block_query",[](bool v){fake_follow::b_entered=false;fake_follow::block_b=v;});
  m.def("query_entered",[]{return fake_follow::b_entered.load();});
  m.def("state",[](int v){fake_follow::state=v;});
  m.def("query_rc",[](int v){fake_follow::query_rc=v;});
+ m.def("watermark_raw",[](int v){fake_follow::watermark_raw=v;});
+ m.def("batch_counts",[]{return std::vector<int>{fake_follow::batch_calls.load(),fake_follow::batch_points.load()};});
+ // Odd/even IDs select the two fake push controls. Keep fixture pairing
+ // independent of how many clients earlier unittest classes constructed.
+ m.def("align_instance_pair",[]{if(fake_follow::instances.load()%2)++fake_follow::instances;});
+ m.def("send_delay_s",[](double v){fake_follow::send_delay_s=v;});
  m.def("joint",[](double v){fake_follow::joint=v;});
  m.def("push_enabled",[](bool v){std::lock_guard<std::mutex>lock(fake_follow::periodic_push_mutex);fake_follow::push_enabled=v;});
  m.def("push_enabled_b",[](bool v){std::lock_guard<std::mutex>lock(fake_follow::periodic_push_mutex);fake_follow::push_enabled_b=v;});

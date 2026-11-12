@@ -19,6 +19,10 @@ public:
         if(!entered_)throw std::runtime_error("Passthrough not entered");
         return sdk.robotServiceSetRobotPosData2Canbus(q);
     }
+    template<class Sdk,class Points> int send_batch(Sdk& sdk,const Points& points) {
+        if(!entered_)throw std::runtime_error("Passthrough not entered");
+        return sdk.robotServiceSetRobotPosData2Canbus(points);
+    }
     template<class Sdk> int leave(Sdk& sdk) {
         if(!possible_)return 0;
         int rc=sdk.robotServiceLeaveTcp2CanbusMode();

@@ -206,6 +206,11 @@ class HomeRuntimeTests(unittest.TestCase):
         self.assertEqual(self.runtime.home['state'],'failed')
         self.assertTrue(self.worker.status()['fatal'])
         self.assertFalse(self.client.permitted)
+        evidence=self.runtime.home['failure_evidence']
+        self.assertEqual(evidence['hardware']['first_fatal']['reason'],'synthetic_hardware_fault')
+        self.assertEqual(evidence['phase'],'moving')
+        self.worker._status['first_fatal']['reason']='changed_after_capture'
+        self.assertEqual(evidence['hardware']['first_fatal']['reason'],'synthetic_hardware_fault')
 
     def test_missing_reference_cannot_start_home_or_submit_targets(self):
         self.runtime=J6QuestRuntime(self.shadow,self.worker,control_dt=.005,clock=self.clock)
@@ -215,20 +220,33 @@ class HomeRuntimeTests(unittest.TestCase):
         self.assertIn('不可用',self.runtime.last_operator_message)
         self.assertEqual(self.client.sent,[])
 
-    def test_tracking_failure_stops_and_never_reports_completion(self):
+    def test_tracking_lag_over_eight_degrees_continues_until_measured_arrival(self):
         self.reference=dict(path='synthetic-tracking',q_rad=(.5,)*6)
         self.runtime=J6QuestRuntime(self.shadow,self.worker,home_reference=self.reference,
                                   control_dt=.005,clock=self.clock)
         self.prepare_home();self.tick(True);self.tick(True)
-        # The feedback remains fresh but reports a large deviation from the
-        # most recent accepted target. This is distinct from SDK acceptance.
-        self.client.q=[.2]*6
-        self.worker.cache.update(self.client.q,received_monotonic_s=self.clock(),source='synthetic')
-        self.tick(True)
-        self.assertEqual(self.runtime.home['state'],'failed')
-        self.assertEqual(self.runtime.home['error'],'home_tracking_error')
-        self.assertFalse(self.client.permitted)
+        # Accept commands while fresh measurements stay behind, including
+        # after the commanded reference has reached the final home position.
+        send=self.client.send_joints
+        measured=list(self.client.q)
+        def accept_without_following(q,token):
+            result=send(q,token)
+            self.client.q=list(measured)
+            return result
+        self.client.send_joints=accept_without_following
+        for _ in range(200):self.tick(True)
+        self.assertGreater(min(abs(q-a) for q,a in zip(self.client.sent[-1],measured)),math.radians(8.))
+        self.assertLess(max(abs(q-a) for q,a in zip(self.client.sent[-1],self.reference['q_rad'])),1e-7)
+        self.assertEqual(self.runtime.home['state'],'moving')
+        self.assertIsNone(self.runtime.home['error'])
+        self.assertTrue(self.client.permitted)
         self.assertIsNone(self.runtime.home['completed_monotonic_s'])
+        self.client.send_joints=send
+        for _ in range(30):
+            self.tick(True)
+            if self.runtime.home['state']=='complete':break
+        self.assertEqual(self.runtime.home['state'],'complete')
+        self.assertTrue(self.worker.status()['stop_confirmed'])
 
     def test_transition_from_home_to_teleop_requires_stop(self):
         self.prepare_home();self.tick(True)
@@ -375,6 +393,50 @@ class HomeOneshotTests(unittest.TestCase):
         self.assertEqual(self.runtime.home['state'],'failed')
         self.assertTrue(self.worker.status()['fatal'])
         self.assertFalse(self.client.permitted)
+
+    def test_paused_episode_preserves_failure_state_and_retry_clears_evidence(self):
+        self.runtime.home['target_q_rad']=[.5]*6
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'synthetic'
+            recorder=RawRecorder(path,task='Synthetic interrupted home',clock=self.clock)
+            self.runtime.recorder=self.worker.recorder=recorder
+            try:
+                recorder.begin();self.prepare_home();self.tick(False);self.tick(False)
+                self.assertEqual(recorder.status()['state'],'paused')
+                self.worker.revoke('synthetic_feedback_fault')
+                self.tick(False)
+                self.assertEqual(self.runtime.home['error'],'synthetic_feedback_fault')
+                self.tick(False,home=False)
+                self.tick(False)
+                self.assertIsNone(self.runtime.home['failure_evidence'])
+            finally:
+                recorder.close();self.runtime.recorder=self.worker.recorder=None
+            rows=[json.loads(line) for line in (path/'streams.jsonl').read_text().splitlines()]
+            interrupted=[r for r in rows if r['kind']=='home_return' and r['state']=='cancelled']
+            self.assertEqual(len(interrupted),1)
+            self.assertEqual(interrupted[0]['failure_evidence']['hardware']['fault'],'synthetic_feedback_fault')
+            self.assertFalse(any(r['kind']=='sdk_command' for r in rows))
+
+    def test_arrival_then_stop_response_timeout_never_reports_completion(self):
+        self.prepare_home();self.tick(False);self.tick(False)
+        def stop_timeout():
+            self.clock.advance(2.01)
+            self.worker.watchdog_tick()
+            self.runtime._advance_home()
+            self.clock.advance(2.99)
+        self.client.stop_rc=10007
+        self.client.stop_hook=stop_timeout
+        for _ in range(150):
+            self.tick(False,home=False)
+            if self.runtime.home['state']=='failed':break
+        hardware=self.worker.status()
+        self.assertEqual(self.runtime.home['state'],'failed')
+        self.assertIsNone(self.runtime.home['completed_monotonic_s'])
+        self.assertTrue(hardware['stop_result_unknown'])
+        self.assertEqual(hardware['last_stop']['return_code'],10007)
+        self.assertEqual(self.runtime.home['failure_evidence']['phase'],'stopping')
+        self.assertEqual(self.runtime.home['failure_evidence']['hardware']['first_fatal']['reason'],
+                         'stop_completion_over_budget_operator_stop_required')
 
 
 if __name__=='__main__':unittest.main(verbosity=2)

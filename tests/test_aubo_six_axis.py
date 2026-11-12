@@ -366,12 +366,15 @@ class PassthroughTests(unittest.TestCase):
         self.entry_rc=0
         self.entry_hook=None
         self.client.enter_passthrough=self.enter
+        self.client.send_priming=lambda token:self.client.send_joints(self.fixed,token)
+        self.client.finish_priming=lambda token:self.client.permitted and token==self.client.rev
         self.worker=J6FollowWorker(self.client,[0.]*6,j6_range_rad=(-3.,3.),
             joint_ranges_rad=((-3.,3.),)*6,clock=self.clock,
             command_mode='passthrough',diagnostics=True)
     def enter(self,token):
         self.assertTrue(self.client.permitted);self.assertEqual(token,self.client.rev)
         self.events.append('enter')
+        self.fixed=tuple(self.client.q)
         if self.entry_hook:self.entry_hook()
         return result(self.clock,op='enter_tcp2canbus',rc=self.entry_rc)
     def offer(self,session=1):
@@ -381,25 +384,37 @@ class PassthroughTests(unittest.TestCase):
         self.worker.revoke('grip_released')
         with patch('teleop.aubo.follow.time.sleep',side_effect=lambda _:self.clock.advance(.051)):
             self.worker._cycle()
-    def test_mode_entry_only_on_engagement_then_exact_six_joint_send(self):
+    def warmup(self,session=1):
+        for _ in range(20):
+            if self.worker.status()['state']=='active':return
+            self.clock.advance(.006);self.offer(session);self.worker._cycle()
+        self.fail('Priming failed to converge in offline test')
+    def test_mode_entry_sends_measured_hold_then_smoothed_six_joint_target(self):
         self.worker._cycle();self.assertEqual(self.events,[])
         self.offer();self.worker._cycle()
-        self.assertEqual(self.events,['enter']);self.assertEqual(self.client.sent,[])
+        self.assertEqual(self.events,['enter']);self.assertEqual(self.client.sent,[(0.,)*6])
+        self.assertTrue(self.worker.status()['last_attempt']['first_measured_hold'])
+        self.warmup()
         self.clock.advance(.051);self.offer();self.worker._cycle()
-        self.assertEqual(self.client.sent,[(.2,-.2,.3,-.3,.4,-.4)])
+        self.assertEqual(self.client.sent[-1],(0.,)*6)  # Exact first ACTIVE anchor.
+        self.clock.advance(.006);self.offer();self.worker._cycle()
+        for actual, desired in zip(self.client.sent[-1],(.2,-.2,.3,-.3,.4,-.4)):
+            self.assertGreater(actual*desired,0)
+            self.assertLess(abs(actual),math.radians(.5))
+        self.assertEqual(self.worker.status()['target_policy'],'bounded_actual_dt')
         self.assertEqual(self.worker.status()['command_mode'],'passthrough')
         self.assertFalse(self.worker.status()['sdk_profile_controls_passthrough'])
     def test_passthrough_two_hundred_hz_uses_latest_target_and_never_catches_up(self):
         self.offer();self.worker._cycle()
         self.clock.advance(.002);self.offer();self.worker._cycle()
-        self.assertEqual(self.client.sent,[])
+        self.assertEqual(self.client.sent,[(0.,)*6])
         self.clock.advance(.0031)
         self.worker.note_input(self.clock())
         self.worker.offer(Candidate((-.1,)*6,self.clock(),1));self.worker._cycle()
-        self.assertEqual(self.client.sent,[(-.1,)*6])
+        self.assertEqual(self.client.sent,[(0.,)*6,(0.,)*6])
         self.clock.advance(.08);self.offer();self.worker._cycle()
-        self.assertEqual(len(self.client.sent),2)
-        self.worker._cycle();self.assertEqual(len(self.client.sent),2)
+        self.assertEqual(len(self.client.sent),3)
+        self.worker._cycle();self.assertEqual(len(self.client.sent),3)
         self.assertEqual(self.worker.status()['requested_frequency_hz'],200.)
     def test_release_during_enter_never_allows_a_target(self):
         self.entry_hook=lambda:self.worker.revoke('grip_released')
@@ -417,7 +432,7 @@ class PassthroughTests(unittest.TestCase):
         self.assertTrue(self.worker.status()['stop_result_unknown'])
         self.assertTrue(self.worker.status()['fatal'])
         self.offer(session=2);self.worker._cycle()
-        self.assertEqual(self.events,['enter']);self.assertEqual(self.client.sent,[])
+        self.assertEqual(self.events,['enter']);self.assertEqual(self.client.sent,[(0.,)*6])
     def test_entry_exception_never_sends_and_leaves_stop_path_available(self):
         def fail():raise RuntimeError('lost enter response')
         self.entry_hook=fail;self.offer()
@@ -428,9 +443,36 @@ class PassthroughTests(unittest.TestCase):
         self.offer();self.worker._cycle();self.stop()
         self.client.q=[.1]*6
         self.offer(session=2);self.worker._cycle()
+        self.assertEqual(self.events,['enter'])  # Native/host cold cooldown.
+        self.clock.advance(.5)
+        self.offer(session=2);self.worker._cycle()
         self.assertEqual(self.events,['enter','enter'])
         self.assertEqual(self.worker._last_sent_q,(.1,)*6)
-        self.assertEqual(self.client.sent,[])
+        self.assertEqual(self.client.sent,[(0.,)*6,(.1,)*6])
+        self.clock.advance(.006);self.offer(session=2);self.worker._cycle()
+        self.assertEqual(self.client.sent[-1],(.1,)*6)
+        self.warmup(session=2)
+        self.clock.advance(.006);self.offer(session=2);self.worker._cycle()
+        self.assertEqual(self.client.sent[-1],(.1,)*6)  # Exact first ACTIVE anchor.
+        self.clock.advance(.006);self.offer(session=2);self.worker._cycle()
+        self.assertGreater(self.client.sent[-1][0],.1)
+        self.assertLess(self.client.sent[-1][0]-.1,math.radians(.1))
+    def test_release_during_first_hold_does_not_reauthorize(self):
+        self.client.send_hook=lambda:self.worker.revoke('grip_released')
+        self.offer();self.worker._cycle()
+        self.assertEqual(self.client.sent,[(0.,)*6])
+        self.assertFalse(self.client.permitted)
+        self.assertEqual(self.worker.status()['state'],'stop_requested')
+        self.stop();self.assertTrue(self.worker.status()['stop_confirmed'])
+    def test_slow_send_is_not_followed_by_extra_five_ms_sleep(self):
+        self.offer();self.worker._cycle()
+        self.clock.advance(.006);self.offer()
+        self.client.send_hook=lambda:self.clock.advance(.012)
+        self.worker._cycle()
+        self.assertEqual(self.worker._wait_timeout_s(),0.)
+        self.client.send_hook=None
+        self.offer();self.worker._cycle()
+        self.assertEqual(len(self.client.sent),3)
     def test_legacy_j6_cannot_use_passthrough(self):
         with self.assertRaises(ValueError):
             J6FollowWorker(self.client,[0.]*6,j6_range_rad=(-3.,3.),command_mode='passthrough')

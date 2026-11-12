@@ -36,6 +36,19 @@ class StateQueryWorker:
         self._quit, self._wake, self._first = threading.Event(), threading.Event(), threading.Event()
         self._thread = threading.Thread(target=self._run, name="aubo-state-sdk", daemon=True)
         self._inflight = self._last_result = self._last_attempt = self._error = None
+        self._paused=False
+        self._quiescent=threading.Event();self._quiescent.set()
+
+    def pause(self):
+        # Set before waiting: a query may finish, but no new one may start.
+        with self._lock:self._paused=True
+        self._wake.set()
+        if not self._quiescent.wait(self.budget_s+.25):
+            raise RuntimeError('State query did not quiesce before passthrough entry')
+
+    def resume(self):
+        with self._lock:self._paused=False
+        self._wake.set()
 
     def status(self):
         with self._lock:
@@ -43,7 +56,7 @@ class StateQueryWorker:
                 sdk_inflight_age_s=self.clock()-self._inflight["started_s"] if self._inflight else None,
                 last_result=dict(self._last_result) if self._last_result else None,
                 last_attempt=dict(self._last_attempt) if self._last_attempt else None,
-                error=self._error, thread_alive=self._thread.is_alive())
+                error=self._error, thread_alive=self._thread.is_alive(),paused=self._paused)
 
     def fail(self, reason):
         with self._lock:
@@ -56,8 +69,9 @@ class StateQueryWorker:
 
     def query_once(self):
         with self._lock:
-            if self._error is not None or self._quit.is_set():
+            if self._error is not None or self._quit.is_set() or self._paused:
                 return
+            self._quiescent.clear()
             self._inflight = dict(operation="robot_state", started_s=self.clock(), budget_s=self.budget_s)
         try:
             raw = self.client.query_state()
@@ -80,6 +94,7 @@ class StateQueryWorker:
         finally:
             with self._lock:
                 self._inflight = None
+                self._quiescent.set()
             self._first.set()
 
     def request_refresh(self):
@@ -100,6 +115,10 @@ class StateQueryWorker:
             state = self.status()
             if state["error"] is not None or self._quit.is_set():
                 break
+            with self._lock:paused=self._paused
+            if paused:
+                self._wake.wait(.05)
+                continue
             period = self.active_period_s if self.is_active() else self.idle_period_s
             # Period is start-to-start, not an extra sleep after the reply.
             # A slow query consumes its own period; keep one call in flight

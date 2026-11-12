@@ -52,10 +52,60 @@
       return { visible: true, tone: "error", title: "录制状态连接中断",
         detail: `最后确认：${lastState}`, previous: "状态可能已过期", ...prompts };
     }
+    const hardware = status.hardware || {};
+    if (status.recording_blocked_reason || status.clutch_state === "fault" || hardware.fatal || hardware.stop_result_unknown) {
+      return { visible: true, tone: "error",
+        title: hardware.stop_result_unknown ? "停止未确认 · 采集已锁定" : "硬件故障 · 采集已锁定",
+        detail: "右 Grip 无法恢复；先确认物理停止并处理故障", previous, ...prompts,
+        promptLine2: "当前不能开始新段或继续遥操",
+        promptLine3: "处理故障后重新启动会话",
+      };
+    }
     const home = status.home_return;
     if (home && !collection.error && ["waiting_for_stop", "ready", "moving", "stopping"].includes(home.state)) {
       return { visible: true, tone: "saving", title: home.state === "moving" ? "正在回原位" : "回位准备／停止确认中",
         detail: "保持左 Y 按住 · 松开即请求停止", previous, ...prompts };
+    }
+    if (!collection.enabled && hardware.state) {
+      // Free teleoperation needs admission feedback even without recording.
+      // Read the existing motion status; this card never grants permission.
+      let title = "遥操就绪", detail = "捏住右 Grip 接合", tone = "waiting";
+      const phase = hardware.state;
+      if (phase === "stop_requested" || phase === "stopping") {
+        title = "正在停止并确认静止"; detail = "确认完成后，松开再按 Grip";
+      } else if (status.operator_paused) {
+        title = "遥操已暂停"; detail = "请先解除网页暂停";
+      } else if (hardware.underrun_recovering) {
+        title = "供点恢复中 · 暂不接合"; detail = "正在确认静止，随后从零速恢复";
+      } else if (phase === "priming" || phase === "arming") {
+        title = "冷接合预热中"; detail = "保持 Grip，等待预热完成";
+      } else if (phase === "braking") {
+        title = "正在制动"; detail = hardware.immediate_hot_clutch
+          ? "随时捏住右 Grip，从当前运动状态继续跟随"
+          : "停稳并满足反馈条件后才能重新接合";
+      } else if (phase === "holding") {
+        if (hardware.hot_ready || (hardware.immediate_hot_clutch && hardware.feedback_ready !== false)) {
+          title = "已保持 · 可重新接合"; detail = "捏住右 Grip 继续运动";
+        } else if (Number.isFinite(hardware.hot_fast) && hardware.hot_fast < 5) {
+          title = "保持中 · 等待发送稳定";
+          detail = `连续快帧 ${hardware.hot_fast}/5（每次 ≤40ms），达标后自动接合`;
+        } else {
+          title = "保持中 · 等待反馈与静止确认";
+          detail = "条件满足后，保持按下的 Grip 会自动接合";
+        }
+      } else if (phase === "active" && status.engaged) {
+        title = "遥操已接合"; detail = "移动右手柄控制机械臂 · 松开 Grip 制动"; tone = "done";
+      } else if (hardware.feedback_ready === false) {
+        title = "等待机械臂反馈"; detail = "反馈恢复后，松开再按 Grip";
+      } else if (status.xr_input && status.xr_input.right_present === false) {
+        title = "等待右手柄输入"; detail = "保持手柄可追踪，松开扳机和 Grip";
+      } else if (status.require_release) {
+        title = "请先松开右 Grip"; detail = "完全松开后再捏住接合";
+      }
+      return { visible: true, tone, title, detail, previous: "",
+        promptLine1: "右 Grip：捏住接合 · 松开制动保持",
+        promptLine2: "等待接合时保持手柄姿态稳定",
+        promptLine3: "追踪丢失后：先松开扳机和 Grip，再重新接合" };
     }
     if (!collection.enabled) {
       return { visible: true, tone: "waiting", title: "录制未启用",

@@ -8,10 +8,11 @@ class OperatorButtons:
     STICK_DEADZONE = .35
     STICK_PRESS_THRESHOLD = .7
 
-    def __init__(self, *, capacity=64):
+    def __init__(self, *, capacity=64, placement_enabled=False):
         self._lock = threading.Lock()
         self._pending = deque()
         self.capacity = capacity
+        self.placement_enabled = placement_enabled
         self._epoch = None
         self._seq = -1
         self._source = None
@@ -32,7 +33,7 @@ class OperatorButtons:
     def request(self, command, stamp):
         if command not in ('pause', 'toggle_episode', 'restart_episode', 'restart_loop',
                            'exit_loop', 'exit_record', 'invalidate',
-                           'software_reset', 'return_home', 'mark', 'finish_session'):
+                           'software_reset', 'return_home', 'placement', 'mark', 'finish_session'):
             raise ValueError('Unknown operator command')
         with self._lock:
             return self._enqueue(command, stamp)
@@ -80,13 +81,21 @@ class OperatorButtons:
             home_pressed = (home_buttons[5]['p'] if isinstance(home_buttons, list) and
                             len(home_buttons) > 5 and isinstance(home_buttons[5], dict) and
                             type(home_buttons[5].get('p')) is bool else None)
+            x_pressed = (self.placement_enabled and isinstance(home_buttons, list) and
+                         len(home_buttons) > 4 and isinstance(home_buttons[4], dict) and
+                         home_buttons[4].get('p') is True)
+            conflict = x_pressed and home_pressed is True
+            if conflict and self._last.get(('placement_conflict', 0)) is not True:
+                if self._enqueue('placement_conflict', stamp):
+                    emitted.append('placement_conflict')
+            self._last[('placement_conflict', 0)] = conflict
             prior = self._last.get(('left', 5))
             self._last[('left', 5)] = home_pressed
             if self._home_held and home_pressed is not True:
                 self._home_held = False
                 if self._enqueue('home_hold_end', stamp):
                     emitted.append('home_hold_end')
-            elif home_pressed is True and prior is False:
+            elif home_pressed is True and prior is False and not conflict:
                 self._home_held = True
                 if self._enqueue('home_hold_start', stamp):
                     emitted.append('home_hold_start')
@@ -94,7 +103,10 @@ class OperatorButtons:
                 self._home_received = stamp
             # Right stick click remains a non-motion event marker. Grip is
             # handled by the clutch/recording pause lifecycle, not as a toggle.
-            for hand, index, command in (('right', 3, 'mark'),):
+            bindings = [('right', 3, 'mark')]
+            if self.placement_enabled:
+                bindings.append(('left', 4, 'placement'))
+            for hand, index, command in bindings:
                 key = (hand, index)
                 ctrl = frame.get('controllers', {}).get(hand)
                 buttons = ctrl.get('buttons') if isinstance(ctrl, dict) else None
@@ -106,7 +118,7 @@ class OperatorButtons:
                 pressed = buttons[index]['p']
                 prior = self._last.get(key)
                 self._last[key] = pressed
-                if pressed and prior is False:
+                if pressed and prior is False and not (command == 'placement' and conflict):
                     if self._enqueue(command, stamp):
                         emitted.append(command)
             # Left stick directions are edge-triggered. A neutral return is

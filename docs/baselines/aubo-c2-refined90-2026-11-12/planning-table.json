@@ -1,0 +1,92 @@
+[
+  {
+    "variant": "Before 25/75/600",
+    "displacement_deg": 5,
+    "duration_s": 1.3801535972810899,
+    "tick_arrival_s": 1.385,
+    "peak_velocity_deg_s": 6.7927222147366795,
+    "peak_acceleration_deg_s2": 15.154942530703424,
+    "peak_jerk_deg_s3": 114.11401596106104,
+    "planning_ms": 0.4692290021921508
+  },
+  {
+    "variant": "Before 25/75/600",
+    "displacement_deg": 10,
+    "duration_s": 2.384905416101723,
+    "tick_arrival_s": 2.3850000000000002,
+    "peak_velocity_deg_s": 7.8619470077970846,
+    "peak_acceleration_deg_s2": 10.150719180480158,
+    "peak_jerk_deg_s3": 44.23212159286158,
+    "planning_ms": 0.48231300024781376
+  },
+  {
+    "variant": "Before 25/75/600",
+    "displacement_deg": 20,
+    "duration_s": 4.121116559023777,
+    "tick_arrival_s": 4.125,
+    "peak_velocity_deg_s": 9.099475703468848,
+    "peak_acceleration_deg_s2": 6.798910630787142,
+    "peak_jerk_deg_s3": 17.144962992743142,
+    "planning_ms": 0.5197829959797673
+  },
+  {
+    "variant": "Exact 25/75/600",
+    "displacement_deg": 5,
+    "duration_s": 0.8016375312439408,
+    "tick_arrival_s": 0.805,
+    "peak_velocity_deg_s": 11.694811725509341,
+    "peak_acceleration_deg_s2": 44.92137627573218,
+    "peak_jerk_deg_s3": 582.3540887565866,
+    "planning_ms": 0.4692879956564866
+  },
+  {
+    "variant": "Exact 25/75/600",
+    "displacement_deg": 10,
+    "duration_s": 1.01,
+    "tick_arrival_s": 1.01,
+    "peak_velocity_deg_s": 18.564356435643564,
+    "peak_acceleration_deg_s2": 56.59738756004313,
+    "peak_jerk_deg_s3": 582.3540887565867,
+    "planning_ms": 0.3622479998739436
+  },
+  {
+    "variant": "Exact 25/75/600",
+    "displacement_deg": 20,
+    "duration_s": 1.5150000000000001,
+    "tick_arrival_s": 1.5150000000000001,
+    "peak_velocity_deg_s": 24.75247524752475,
+    "peak_acceleration_deg_s2": 50.308788942260556,
+    "peak_jerk_deg_s3": 345.0987192631624,
+    "planning_ms": 0.3565680017345585
+  },
+  {
+    "variant": "Exact 45/180/1800",
+    "displacement_deg": 5,
+    "duration_s": 0.5558244202305955,
+    "tick_arrival_s": 0.56,
+    "peak_velocity_deg_s": 16.86683718594189,
+    "peak_acceleration_deg_s2": 93.44022810037808,
+    "peak_jerk_deg_s3": 1747.0622662697597,
+    "planning_ms": 0.1903570009744726
+  },
+  {
+    "variant": "Exact 45/180/1800",
+    "displacement_deg": 10,
+    "duration_s": 0.7002948870941411,
+    "tick_arrival_s": 0.705,
+    "peak_velocity_deg_s": 26.774435092340497,
+    "peak_acceleration_deg_s2": 117.7273102906448,
+    "peak_jerk_deg_s3": 1747.0622662697594,
+    "planning_ms": 0.4203669959679246
+  },
+  {
+    "variant": "Exact 45/180/1800",
+    "displacement_deg": 20,
+    "duration_s": 0.8823162693836619,
+    "tick_arrival_s": 0.885,
+    "peak_velocity_deg_s": 42.50176643143559,
+    "peak_acceleration_deg_s2": 148.32711638268867,
+    "peak_jerk_deg_s3": 1747.0622662697597,
+    "planning_ms": 0.3551050031092018
+  }
+]

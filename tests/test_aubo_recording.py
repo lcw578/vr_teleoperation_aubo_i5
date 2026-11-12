@@ -507,9 +507,76 @@ class RuntimeControlTests(unittest.TestCase):
                 self.assertTrue(self.worker.status()['fatal'])
                 self.assertFalse(self.client.permitted)
                 self.assertEqual(self.client.sent,[])
+                self.assertIsNone(recorder.status()['active_episode'])
+                self.assertEqual(self.runtime.status()['clutch_state'],'fault')
             finally:
                 recorder.close()
                 self.runtime.recorder=self.worker.recorder=None
+
+    def test_stopped_unknown_rejects_new_episode_and_repeated_grip_cannot_resume(self):
+        with tempfile.TemporaryDirectory() as directory:
+            recorder=RawRecorder(Path(directory)/'synthetic',task='Synthetic stop failure',clock=self.clock)
+            self.runtime.recorder=self.worker.recorder=recorder
+            try:
+                self.worker.revoke('stop_completion_over_budget_operator_stop_required',fatal=True)
+                self.worker._unknown=True
+                self.worker._status.update(state='stop_unknown',last_stop={'return_code':10007})
+                for command in ('restart_loop','restart_episode','toggle_episode'):
+                    self.runtime.request_operator_command(command);self.tick(False)
+                    self.assertIsNone(recorder.status()['active_episode'])
+                    self.assertIsNone(self.runtime._episode_transition)
+                    self.assertIn('停止结果未确认',self.runtime.last_operator_message)
+                self.assertFalse(self.runtime._start_episode())
+                for grip in (True,False,True):self.tick(grip)
+                self.runtime.last_operator_message='新段已开始；等待 Grip'
+                status=self.runtime.status()
+                self.assertIn('停止结果未确认',status['operator_message'])
+                self.assertIn('右 Grip 无法恢复',status['recording_blocked_reason'])
+                self.assertEqual(status['clutch_state'],'fault')
+                self.assertFalse(self.client.permitted)
+                self.assertEqual(self.client.sent,[])
+            finally:
+                recorder.close();self.runtime.recorder=self.worker.recorder=None
+            rows=[json.loads(l) for l in (Path(directory)/'synthetic/streams.jsonl').read_text().splitlines()]
+            self.assertFalse(any(r['kind']=='episode_start' for r in rows))
+
+    def test_restart_during_fatal_fault_preserves_existing_episode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            recorder=RawRecorder(Path(directory)/'synthetic',task='Synthetic preserve episode',clock=self.clock)
+            self.runtime.recorder=self.worker.recorder=recorder
+            try:
+                recorder.begin()
+                self.worker.revoke('synthetic_hardware_fault',fatal=True)
+                self.runtime.request_operator_command('restart_loop');self.tick(False)
+                self.assertEqual(recorder.status()['active_episode'],0)
+                self.assertIsNone(self.runtime._episode_transition)
+                self.assertIn('故障锁定',self.runtime.status()['operator_message'])
+                self.assertFalse(self.client.permitted)
+            finally:
+                recorder.close();self.runtime.recorder=self.worker.recorder=None
+
+    def test_two_healthy_episodes_without_grip_are_saved_with_zero_samples(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'synthetic'
+            recorder=RawRecorder(path,task='Synthetic no Grip episodes',clock=self.clock)
+            self.runtime.recorder=self.worker.recorder=recorder
+            try:
+                for episode in (0,1):
+                    self.runtime.request_operator_command('restart_loop');self.tick(False)
+                    self.assertEqual(recorder.status()['active_episode'],episode)
+                    self.assertEqual(recorder.status()['pause_reason'],'awaiting_grip')
+                    self.assertIsNone(self.runtime.status()['recording_blocked_reason'])
+                    self.tick(False)
+                    self.runtime.request_operator_command('exit_loop');self.tick(False)
+                    recorder._queue.join();self.runtime._operator_tick()
+                    self.assertIsNone(recorder.status()['active_episode'])
+                    self.assertEqual(recorder.status()['saved_episodes'],episode+1)
+                self.assertEqual(self.client.sent,[])
+            finally:
+                recorder.close();self.runtime.recorder=self.worker.recorder=None
+            summaries=[json.loads(p.read_text()) for p in sorted((path/'episodes').glob('*.json'))]
+            self.assertEqual(len(summaries),2)
+            self.assertTrue(all(s['sample_count']==0 and s['disposition']=='saved' for s in summaries))
 
     def test_actual_worker_commands_and_button_episode_end_are_captured(self):
         with tempfile.TemporaryDirectory() as directory:

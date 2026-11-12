@@ -35,6 +35,35 @@ def wait_for(predicate, timeout=1.):
         time.sleep(.002)
 
 
+class OfflineObserverAdapter:
+    """In-process native double for CLI wiring; real IPC has separate tests."""
+    sdk_connections=2
+    def __init__(self,*args,**kwargs):
+        self.client=native.RobotStateObserver()
+        self.cache=native.RobotStateCache();self.generation=self.cache.invalidate()
+        self.waypoint_cache=native.WaypointFeedbackCache('B')
+        self.waypoint_generation=self.waypoint_cache.invalidate()
+    def login(self,*args):return self.client.login(*args)
+    def start_waypoint_feedback(self):
+        result=self.client.start_waypoint_feedback()
+        for sample in self.client.waypoint_feedback()['samples']:
+            self.waypoint_cache.publish(sample['q_rad'],sample['host_received_monotonic_s'],
+                sample['sequence'],self.waypoint_generation)
+        return result
+    def query_state(self):
+        result=self.client.query_state()
+        self.cache.publish(result['data'],result['return_code'],result['host_started_monotonic_s'],
+            result['host_received_monotonic_s'],self.generation)
+        for sample in self.client.waypoint_feedback()['samples']:
+            self.waypoint_cache.publish(sample['q_rad'],sample['host_received_monotonic_s'],
+                sample['sequence'],self.waypoint_generation)
+        return result
+    def invalidate(self):self.cache.invalidate()
+    def status(self):return dict(process_id=None,telemetry_alive=True,telemetry_error=None)
+    def logout(self):return self.client.logout()
+    def abandon_cleanup(self):pass
+
+
 class NativeParallelTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -416,6 +445,7 @@ class NativeParallelTests(unittest.TestCase):
     def test_cli_wires_both_connections_and_closes_without_motion(self):
         seen=[]
         def serve(*args, **kwargs):
+            kwargs['on_ready']()
             status=kwargs['extra_status']()['hardware']
             seen.append(status)
             self.assertEqual(status['state_query_policy'],'independent_sdk_connection')
@@ -426,6 +456,7 @@ class NativeParallelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as isolated_root, \
              patch('teleop.aubo.quest_follow.ROOT',Path(isolated_root)), \
              patch('teleop.aubo.quest_follow.load_follow_native',return_value=native), \
+             patch('teleop.aubo.quest_follow.ProcessStateObserver',OfflineObserverAdapter), \
              patch('teleop.aubo.quest_follow.getpass.getpass',return_value='offline'), \
              patch('teleop.aubo.quest_follow.socket.socket'), \
              patch('teleop.aubo.quest_follow.serve_quest',side_effect=serve):
@@ -434,11 +465,61 @@ class NativeParallelTests(unittest.TestCase):
                 '--port','1','--user','test','--usb','--headless','--duration','1']),0)
         self.assertEqual(len(seen),1)
 
+    def test_passthrough_cli_defaults_to_independent_state_and_preserves_recording(self):
+        with tempfile.TemporaryDirectory() as isolated_root:
+            capture=Path(isolated_root)/'capture'
+            def serve(*args, **kwargs):
+                kwargs['on_ready']()
+                status=kwargs['extra_status']()['hardware']
+                self.assertEqual(status['command_mode'],'passthrough')
+                self.assertEqual(status['state_query_mode'],'parallel')
+                self.assertEqual(status['target_policy'],'bounded_actual_dt')
+                self.assertEqual(status['submitted'],0)
+                metadata=json.loads((capture/'manifest.json').read_text())['metadata']
+                self.assertEqual(metadata['requested_send_hz'],200.)
+                self.assertIsNone(metadata['passthrough_alpha'])
+            with patch.dict(os.environ,{'AUBO_ALLOWED_ROOTS':isolated_root}), \
+                 patch('teleop.aubo.quest_follow.ROOT',Path(isolated_root)), \
+                 patch('teleop.aubo.quest_follow.load_follow_native',return_value=native), \
+                 patch('teleop.aubo.quest_follow.ProcessStateObserver',OfflineObserverAdapter), \
+                 patch('teleop.aubo.quest_follow.getpass.getpass',return_value='offline'), \
+                 patch('teleop.aubo.quest_follow.socket.socket'), \
+                 patch('teleop.aubo.quest_follow.serve_quest',side_effect=serve):
+                self.assertEqual(main(['--execute-six-axis','--command-mode','passthrough',
+                    '--waypoint-feedback','--host','offline','--port','1','--user','test',
+                    '--usb','--headless','--duration','1','--record',str(capture),'--task','offline wiring']),0)
+
+    def test_passthrough_send_and_snapshot_do_not_wait_for_blocked_state_query(self):
+        a=native.J6Follower(six_axis=True,passthrough=True)
+        query=None
+        try:
+            a.login('offline',1,'test','test');a.start_waypoint_feedback()
+            self.b.query_state();a.attach_state_observer(self.b)
+            self.assertTrue(a.prepare()['prepared'])
+            token=a.revision();self.assertTrue(a.arm(token))
+            self.assertEqual(a.enter_passthrough(token)['return_code'],0)
+            controls.block_query(True)
+            query=threading.Thread(target=self.b.query_state);query.start()
+            wait_for(controls.query_entered)
+            counts=controls.counts()
+            self.assertFalse(a.snapshot().get('observation_pending',False))
+            with self.assertRaisesRegex(RuntimeError,'immutable measured hold'):
+                a.send_joints([.1]*6,token)
+            sent=a.send_priming(token)
+            self.assertEqual(sent['target_rad'],[0.]*6);self.assertEqual(sent['return_code'],0)
+            self.assertEqual(controls.counts()[:2],counts[:2])
+            self.assertTrue(query.is_alive())
+        finally:
+            controls.block_query(False)
+            if query:query.join(1.)
+            a.revoke();a.stop();a.logout()
+
     def test_cli_default_and_explicit_serial_never_construct_observer(self):
         for flags in ([], ['--serial-state-query']):
             with self.subTest(flags=flags):
                 seen=[]
                 def serve(*args, **kwargs):
+                    kwargs['on_ready']()
                     status=kwargs['extra_status']()['hardware']
                     seen.append(status)
                     self.assertEqual(status['state_query_mode'],'serial')
@@ -585,6 +666,104 @@ class NativeParallelTests(unittest.TestCase):
             self.assertFalse(worker.status()['stop_result_unknown'])
         finally:
             controls.state(0);thread.join(2.);worker.state_query.close()
+
+
+class NativePrimingTests(unittest.TestCase):
+    def test_deadline_does_not_poison_native_client_and_cooldown_is_enforced(self):
+        controls.state(0);controls.joint(0.);controls.query_rc(0);controls.push_enabled(True)
+        a=native.J6Follower(six_axis=True,passthrough=True)
+        try:
+            a.login('offline',1,'test','test');a.start_waypoint_feedback()
+            self.assertTrue(a.prepare()['prepared'])
+            a.snapshot();token=a.revision();self.assertTrue(a.arm(token))
+            self.assertEqual(a.enter_passthrough(token)['return_code'],0)
+            time.sleep(2.51)
+            with self.assertRaisesRegex(RuntimeError,'Priming deadline expired'):a.send_priming(token)
+            self.assertEqual(a.stop()['return_code'],0)
+            a.snapshot();token=a.revision();self.assertTrue(a.arm(token))
+            with self.assertRaisesRegex(RuntimeError,'cooldown'):a.enter_passthrough(token)
+            a.revoke();time.sleep(.51)
+            a.snapshot();token=a.revision();self.assertTrue(a.arm(token))
+            self.assertEqual(a.enter_passthrough(token)['return_code'],0)
+            for _ in range(12):
+                a.snapshot();self.assertEqual(a.send_priming(token)['return_code'],0)
+            self.assertTrue(a.finish_priming(token))
+        finally:
+            a.stop();a.logout()
+
+    def test_native_fixed_hold_gate_and_graded_active_state_limit(self):
+        controls.state(0);controls.joint(0.);controls.query_rc(0);controls.push_enabled(True)
+        a=native.J6Follower(six_axis=True,passthrough=True)
+        b=native.RobotStateObserver()
+        try:
+            a.login('offline',1,'test','test');a.start_waypoint_feedback()
+            b.login('offline',1,'test','test');b.query_state();a.attach_state_observer(b)
+            self.assertTrue(a.prepare()['prepared'])
+            a.snapshot();token=a.revision();self.assertTrue(a.arm(token))
+            self.assertEqual(a.enter_passthrough(token)['return_code'],0)
+            self.assertFalse(a.finish_priming(token))
+            for i in range(12):
+                b.query_state()
+                with self.assertRaisesRegex(RuntimeError,'immutable measured hold'):
+                    a.send_joints([.2]*6,token)
+                hold=a.send_priming(token)
+                self.assertEqual(hold['target_rad'],[0.]*6)
+                self.assertEqual(hold['steps'],i+1)
+                if i<11:self.assertFalse(a.finish_priming(token))
+            self.assertTrue(a.finish_priming(token))
+            time.sleep(.21)
+            sent=a.send_joints([.001]*6,token)
+            self.assertTrue(sent['sdk_invoked'])
+            time.sleep(.31)
+            sent=a.send_joints([.001]*6,token)
+            self.assertFalse(sent['sdk_invoked'])
+        finally:
+            a.stop();a.logout();b.logout()
+
+
+class NativeProcessCacheTests(unittest.TestCase):
+    def setUp(self):
+        controls.block_query(False)
+        controls.state(0);controls.query_rc(0);controls.push_enabled(True)
+        self.a = native.J6Follower(six_axis=True)
+        self.a.login("offline", 1, "test", "test")
+        self.a.start_waypoint_feedback()
+        self.cache = native.RobotStateCache()
+        self.generation = self.cache.invalidate()
+        self.publish()
+        self.a.attach_state_cache(self.cache)
+        self.assertTrue(self.a.prepare()["prepared"])
+
+    def publish(self):
+        now = time.monotonic()
+        return self.cache.publish(0, 0, now-.001, now, self.generation)
+
+    def tearDown(self):
+        self.a.revoke()
+        self.a.logout()
+
+    def test_cache_snapshot_preserves_original_age(self):
+        snap = self.a.snapshot()
+        stamp = snap["state"]["host_received_monotonic_s"]
+        time.sleep(.01)
+        self.assertEqual(self.a.snapshot()["state"]["host_received_monotonic_s"], stamp)
+
+    def test_invalidated_generation_refuses_late_result_and_arm(self):
+        self.cache.invalidate()
+        self.assertFalse(self.publish())
+        with self.assertRaises(RuntimeError):
+            self.a.snapshot()
+        self.assertFalse(self.a.arm(self.a.revision()))
+
+    def test_cache_expiration_refuses_arm_without_querying_sdk(self):
+        controls.block_query(True)
+        try:
+            time.sleep(.21)
+            start = time.monotonic()
+            self.assertFalse(self.a.arm(self.a.revision()))
+            self.assertLess(time.monotonic()-start, .05)
+        finally:
+            controls.block_query(False)
 
 
 if __name__ == "__main__":

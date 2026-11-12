@@ -1,8 +1,8 @@
 """Supervised worker; serial motion owner and optional independent state owner.
 
 Independent watchdog revokes local permission while SDK is blocked. It cannot
-interrupt the request or deliver an independent physical stop. Such a timeout
-is latched, never automatically recovered, and requires the operator's stop.
+interrupt the request or deliver an independent physical stop. Safety failures
+retain the stop/release gate. A stationary cold-priming deadline alone can recover after confirmed stop and a fresh released input.
 """
 import hashlib
 import importlib.util
@@ -20,6 +20,7 @@ from .j6_trial import checked_snapshot, require_snapshot
 from .probe import record_ok
 from .readonly import load_native
 from .state_query import StateQueryWorker
+from .trajectory import JointTrajectory
 
 
 class ObservationPending(RuntimeError):
@@ -54,6 +55,21 @@ def load_follow_native(runtime=None):
 class J6FollowWorker:
     streaming_history_capacity = 4096
     period_s = .1                  # Legacy J6 cadence
+    passthrough_alpha = None       # Replaced by bounded actual-dt trajectory
+    priming_max_s = 2.5
+    cold_cooldown_s = .5
+    holding_idle_s = 20.
+    braking_max_s = 3.
+    holding_tolerance_rad = math.radians(.1)
+    braking_tracking_limit_rad = math.radians(3.)
+    hot_state_max_age_s = .5
+    hot_joint_max_age_s = .5
+    slow_send_s = .25
+    slow_send_count = 3
+    priming_limit_s = .4
+    priming_min_steps = 12
+    priming_fast_count = 5
+    priming_fast_s = .04
     six_axis_period_s = .005       # Passthrough: 200 Hz requested
     six_axis_follow_period_s = .05 # Follow: restore previously tested 20 Hz
     send_max_gap_s = .65           # Existing gap budget retained; no catch-up
@@ -65,6 +81,9 @@ class J6FollowWorker:
     sdk_budget_s = .5
     feedback_max_age_s = .2        # Reception age is separate from call duration
     idle_query_period_s = .05
+    hot_query_period_s = .2
+    resume_state_max_age_s = .25
+    resume_joint_max_age_s = .12
     active_push_query_period_s = .1  # Host scheduling choice, not a cabinet rating
     # Experimental completion allowance for the blocking slow-stop operation.
     # This is separate from command/query latency and is not a vendor guarantee.
@@ -73,12 +92,53 @@ class J6FollowWorker:
 
     def __init__(self, client, anchor, *, j6_range_rad, clock=time.monotonic, diagnostics=False,
                  joint_ranges_rad=None, waypoint_feedback=False, sdk_profile_readback=None,
-                 command_mode="follow", follow_hz=20., state_observer=None):
+                 command_mode="follow", follow_hz=20., state_observer=None,
+                 priming_reanchor_required=False, fixed_tick_batch=False,batch_point_limit=4,
+                 wall_clock_batch=False,refined_stream=False,motion_profile=None,buffer_points=None,underrun_points=None):
         self.client, self.anchor, self.clock = client, joints(anchor), clock
         self.six_axis = joint_ranges_rad is not None
         if command_mode not in ("follow", "passthrough") or (command_mode == "passthrough" and not self.six_axis):
             raise ValueError("Passthrough requires explicit six-axis scope")
+        if fixed_tick_batch and (command_mode!='passthrough' or state_observer is None):
+            raise ValueError('Fixed-tick batches require passthrough and independent feedback')
+        if type(batch_point_limit) is not int or not 1<=batch_point_limit<=8:
+            raise ValueError('Batch point limit must be 1..8')
+        if wall_clock_batch and (not fixed_tick_batch or batch_point_limit<4):
+            raise ValueError('Wall clock batches require fixed tick and a 4..8 point maximum')
+        self.wall_clock_batch=bool(wall_clock_batch)
+        if refined_stream and not wall_clock_batch:raise ValueError('Refined stream requires wall clock batches')
+        self.refined_stream=bool(refined_stream)
+        self._state_poll_paused=False
+        self._underrun=None
+        from .motion_profile import motion_profile as resolve_profile
+        self.motion_profile=resolve_profile(motion_profile or 'conservative')
+        self.buffer_points=(18 if motion_profile is not None else 12) if buffer_points is None else buffer_points
+        if type(self.buffer_points) is not int or not 8<=self.buffer_points<=20:
+            raise ValueError('Stream buffer must be 8..20 points')
+        self.underrun_points=self.buffer_points if underrun_points is None else underrun_points
+        if type(self.underrun_points) is not int or self.underrun_points!=self.buffer_points:
+            raise ValueError('Underrun threshold must equal the stream cushion')
+        if motion_profile is not None and not self.refined_stream:
+            raise ValueError('Motion profiles require refined six-axis passthrough')
+        if self.refined_stream:
+            self.client.configure_refined_stream()
+            if motion_profile is not None or buffer_points is not None:
+                ack=self.client.configure_motion_limits(self.motion_profile.velocity_deg_s,
+                    self.motion_profile.acceleration_deg_s2,self.motion_profile.jerk_deg_s3,self.buffer_points,self.underrun_points)
+                if not math.isclose(ack['max_step_deg'],self.motion_profile.step_deg,abs_tol=1e-12):
+                    raise RuntimeError('Native/host fixed tick step limits differ')
+        # Reference-vs-callback distance includes buffered points and feedback
+        # transport age. Preserve the conservative time-equivalent envelope;
+        # final HOLDING position tolerance remains an independent 0.1 degree.
+        self.braking_tracking_limit_rad=math.radians(3.*self.motion_profile.velocity_deg_s/10.)
+        self._next_batch_s=None
+        self._batch_credit=0
+        self._batch_credit_received_s=0.
+        self._batch_credit_diagnosis=None
+        self.batch_point_limit=batch_point_limit
+        self.fixed_tick_batch=bool(fixed_tick_batch)
         self.command_mode = command_mode
+        if command_mode=="passthrough":self.active_push_query_period_s=self.hot_query_period_s
         if follow_hz not in (20., 25., 50., 200.) or (follow_hz != 20. and (not self.six_axis or command_mode != "follow")):
             raise ValueError("Follow rate requires six-axis follow and 20, 25, 50 or 200 Hz")
         if self.six_axis:
@@ -86,8 +146,8 @@ class J6FollowWorker:
                              else 1./follow_hz)
         self.waypoint_feedback_enabled = waypoint_feedback
         self.parallel_state_query = state_observer is not None
-        if self.parallel_state_query and not (self.six_axis and waypoint_feedback and command_mode == "follow"):
-            raise ValueError("Independent state query requires six-axis Follow with waypoint feedback")
+        if self.parallel_state_query and not (self.six_axis and waypoint_feedback):
+            raise ValueError("Independent state query requires six-axis control with waypoint feedback")
         self._engagement_barrier = None
         self.joint_ranges_rad = None
         if self.six_axis:
@@ -99,6 +159,7 @@ class J6FollowWorker:
         # Separate from serial request cache: reading a newer push must not let
         # an older snapshot overwrite it or manufacture a new robot-state time.
         self._push_cache = FeedbackCache(clock)
+        self._push_read_lock=threading.RLock()
         self._last_push_sequence = 0
         self._feedback_channels = {}
         # Finite opt-in commissioning trace; no disk I/O on the SDK thread.
@@ -138,6 +199,21 @@ class J6FollowWorker:
         self._home_velocity = (0.,)*6
         self._last_observed_s = None
         self._robot_state = None
+        self._first_active_hold = False
+        self._hold_q = None
+        self._brake_pending = False
+        self._hot_fast = 0
+        self._slow_sends = 0
+        self._hot_released_s = self._holding_since_s = None
+        self._hot_quiet_q = self._hot_quiet_s = None
+        self._cold_abort_anchor = None
+        self._cold_enter_not_before = 0.
+        self._priming_anchor = None
+        self._priming_started_s = None
+        self._priming_steps = self._priming_fast = 0
+        self._priming_reanchor_ack = None
+        self._priming_reanchor_required = priming_reanchor_required
+        self._trajectory = JointTrajectory(self.anchor,self.joint_ranges_rad,profile=self.motion_profile.name) if command_mode=='passthrough' else None
         self.recorder = None  # Optional bounded handoff; never a filesystem writer.
         self._status = dict(state="idle", fault=None, submitted=0, last_attempt=None,
             last_stop=None, last_snapshot=None, last_observation_attempt=None,
@@ -153,7 +229,8 @@ class J6FollowWorker:
             sdk_profile_policy="sdk_unmodified" if self.six_axis else "legacy_j6_explicit",
             sdk_profile_writes=not self.six_axis,
             sdk_profile_readback=sdk_profile_readback,
-            target_policy="direct_ik" if self.six_axis else "j6_rate_limited",
+            target_policy=("bounded_actual_dt" if command_mode == "passthrough" else "direct_ik") if self.six_axis else "j6_rate_limited",
+            passthrough_alpha=self.passthrough_alpha if command_mode == "passthrough" else None,
             host_target_rate_limit_deg_s=None if self.six_axis else self.speed_deg_s,
             client_acceleration_deg_s2=None if self.six_axis else self.client_acceleration_deg_s2,
             following_error_limit_deg=self.following_error_limit_deg,
@@ -168,18 +245,41 @@ class J6FollowWorker:
             active_state_query_period_s=(self.active_push_query_period_s
                 if self.six_axis and self.waypoint_feedback_enabled else self.idle_query_period_s),
             idle_state_query_period_s=self.idle_query_period_s)
-        self._status.update(command_mode=command_mode,
+        self._status.update(command_mode=command_mode,fixed_tick_batch=self.fixed_tick_batch,
+            wall_clock_batch=self.wall_clock_batch,
+            refined_stream=self.refined_stream,underrun_recovering=False,
+            batch_tick_s=.005 if self.fixed_tick_batch else None,
+            batch_max_points=self.batch_point_limit if self.fixed_tick_batch else None,
+            batch_max_pending_points=8 if self.fixed_tick_batch and not self.wall_clock_batch else None,
+            motion_profile=self.motion_profile.metadata(),braking_tracking_limit_deg=math.degrees(self.braking_tracking_limit_rad),
+            holding_tolerance_deg=math.degrees(self.holding_tolerance_rad),
+            batch_underrun_gap_s=self.underrun_points*.005,
+            batch_nominal_cushion_points=(self.buffer_points if self.refined_stream else 8) if self.wall_clock_batch else None,
+            state_monitoring_during_stream='A_calls_and_C_joints' if self.refined_stream else 'B_state_and_joints',
+            batch_queue_bound_verified=False,
             sdk_profile_controls_passthrough=False if command_mode == "passthrough" else None)
+        self._status.update(priming_ready=False,priming_steps=0,priming_consecutive_fast=0,
+            priming_max_s=self.priming_max_s,priming_age_limit_s=self.sdk_budget_s if self.refined_stream else self.priming_limit_s,
+            active_since_monotonic_s=None,priming_reanchor_required=priming_reanchor_required,
+            hot_ready=False,hot_fast=0,consecutive_slow_sends=0,
+            hot_feedback_limits_s=dict(state=self.hot_state_max_age_s,joints=self.hot_joint_max_age_s),hold_q_rad=None,holding_idle_s=self.holding_idle_s,
+            cold_enter_not_before_s=0.)
         self.state_query = (StateQueryWorker(state_observer,
             on_failure=lambda reason:self.revoke(reason, fatal=True),
-            is_active=lambda:self.status()["state"] == "active", diagnose=self._diagnose, clock=clock,
+            is_active=lambda:self.status()["state"] in ("active","braking","holding"), diagnose=self._diagnose, clock=clock,
             active_period_s=self.active_push_query_period_s, idle_period_s=self.idle_query_period_s,
             budget_s=self.sdk_budget_s) if self.parallel_state_query else None)
         if self.parallel_state_query:
+            connections = getattr(state_observer, "sdk_connections", 2)
             self._status.update(state_query_policy="independent_sdk_connection",
                 state_query_mode="parallel", state_query_mode_label="并行查询（双 SDK 连接）",
                 state_query_schedule="start_to_start_single_inflight_no_catchup",
-                serial_sdk_calls=False, motion_sdk_calls_serial=True, sdk_connections=2)
+                serial_sdk_calls=False, motion_sdk_calls_serial=True, sdk_connections=connections)
+            if getattr(state_observer, "process_isolated", False):
+                self._status.update(state_query_mode="process",
+                    state_query_mode_label=f"独立进程查询（{connections} 条 SDK 连接）",
+                    state_query_policy="process_isolated_sdk_connection",
+                    state_observer_process=state_observer.status())
 
     def start(self):
         if self.state_query:
@@ -261,6 +361,10 @@ class J6FollowWorker:
 
     def measured_feedback(self):
         """Nonblocking push memory read; does not refresh SDK robot-state data."""
+        with self._push_read_lock:
+            return self._measured_feedback()
+
+    def _measured_feedback(self):
         if not self.waypoint_feedback_enabled:
             return self.cache.require_recent(self.feedback_max_age_s)
         read_started = self.clock()
@@ -310,15 +414,49 @@ class J6FollowWorker:
                 read_finished_monotonic_s=read_finished,
                 read_duration_s=read_finished-read_started,
                 sdk_inflight=self.status()["sdk_inflight"])
-        return self._push_cache.require_recent(self.feedback_max_age_s)
+        return self._push_cache.require_recent(self._reception_limit())
+
+    def _hot_feedback_phase(self):
+        return self.command_mode=='passthrough' and self._status['state'] in ('active','braking','holding')
+
+    def _state_age_required(self):
+        return not (self.refined_stream and self._state_poll_paused and
+            self._status['state'] in ('priming','active','braking','holding'))
+
+    def _reception_limit(self, channel='joints'):
+        if self._status['state']=='priming':return self.sdk_budget_s if self.refined_stream else self.priming_limit_s
+        if self._hot_feedback_phase():
+            return self.hot_state_max_age_s if channel=='state' else self.hot_joint_max_age_s
+        return self.feedback_max_age_s
+
+    def _check_send_streak(self, result):
+        if self.command_mode!='passthrough':return True
+        self._slow_sends=self._slow_sends+1 if result['duration_s']>self.slow_send_s else 0
+        self._status['consecutive_slow_sends']=self._slow_sends
+        if self._slow_sends>=self.slow_send_count:
+            self.revoke('consecutive_slow_sends',fatal=True)
+            return False
+        return True
+
+    def acknowledge_priming_reanchor(self, session, stamp):
+        """Control owner confirms that current hand pose was anchored; no old IK replay."""
+        with self._lock:
+            if (self._status['state']!='priming' or not self._status['priming_ready'] or
+                    self._stop_needed or self._wanted is None or session!=self._active_session or
+                    not math.isfinite(stamp) or not self._priming_started_s<=stamp<=self.clock()):
+                return False
+            self._priming_reanchor_ack=stamp
+            # Replace any goal generated during warmup with the static anchor.
+            self._wanted=(self._priming_anchor,stamp,session,self._active_source)
+            return True
 
     def offer(self, candidate, *, control_source='teleop'):
         # Candidate is the author's output; the backend only bounds submission.
         try:
             q = joints(candidate.q_rad)
             stamp = float(candidate.generated_monotonic_s)
-            valid = (control_source in ('teleop', 'home_return') and
-                     (control_source != 'home_return' or (self.six_axis and self.command_mode == 'follow')) and
+            valid = (control_source in ('teleop', 'home_return', 'placement') and
+                     (control_source not in ('home_return', 'placement') or (self.six_axis and self.command_mode == 'follow')) and
                      math.isfinite(stamp) and 0 <= self.clock() - stamp <= self.candidate_max_age_s)
         except (ValueError, TypeError, OverflowError):
             valid = False
@@ -328,17 +466,84 @@ class J6FollowWorker:
         with self._lock:
             if self._quit.is_set() or self._fatal or self._unknown or self._stop_needed:
                 return False
+            if self._status['state'] in ('braking','holding'):return False
             self._wanted = (q, stamp, candidate.session, control_source)
         self._wake.set()
         return True
 
+    def resume_clutch(self, session, stamp, *, reanchor=None):
+        """Owner has reanchored latest hand pose; atomically admit a hot session."""
+        with self._lock:
+            now=self.clock()
+            if (self._status['state'] not in (('braking','holding') if self.refined_stream else ('holding',)) or
+                    (not self.refined_stream and not self._status['hot_ready']) or
+                    self._stop_needed or self._fatal or self._unknown or
+                    not math.isfinite(stamp) or not 0<=now-stamp<=.1 or
+                    self._input_s is None or not 0<=now-self._input_s<=.1):return False
+            snap=self._status['last_snapshot']
+            if not self._hot_admissible(now,snap):return False
+            anchor=tuple(self._trajectory.q) if self.refined_stream else self._hold_q
+            if reanchor is not None and not reanchor(anchor):return False
+            if not self.refined_stream:self._trajectory.reset(anchor)
+            self._brake_pending=False
+            self._first_active_hold=not self.refined_stream
+            self._active_session=session
+            self._active_source='teleop'
+            self._wanted=(anchor,now,session,'teleop')
+            self._priming_anchor=anchor
+            self._status.update(state='active',hot_ready=False,active_since_monotonic_s=now,
+                active_anchor_rad=list(anchor),reanchor_monotonic_s=stamp)
+            self._diagnose('hot_clutch_resumed',session=session,q_anchor_rad=list(anchor),
+                v_anchor_rad_s=list(self._trajectory.v),a_anchor_rad_s2=list(self._trajectory.a),
+                reanchor_monotonic_s=stamp,feedback_snapshot=snap)
+            self._wake.set()
+            return True
+
+    def _hot_admissible(self, now, snap):
+        if self.refined_stream:
+            return (snap is not None and record_ok(snap['joints']) and record_ok(snap['state']) and
+                snap['state']['data'] in (0,1) and
+                0<=now-snap['joints']['host_received_monotonic_s']<=self.hot_joint_max_age_s)
+        return (self._underrun is None and
+            self._last_send_s is not None and 0<=now-self._last_send_s<=.05 and
+            self._hot_quiet_s is not None and snap is not None and
+            snap['joints']['host_received_monotonic_s']-self._hot_quiet_s>=.1 and
+            max(abs(a-b) for a,b in zip(snap['joints']['data'],self._hot_quiet_q))<=math.radians(.02) and
+            self._hot_fast>=5 and snap['state']['data'] in (0,1) and
+            (not self._state_age_required() or 0<=now-snap['state']['host_received_monotonic_s']<=self.resume_state_max_age_s) and
+            0<=now-snap['joints']['host_received_monotonic_s']<=self.resume_joint_max_age_s and
+            max(abs(a-b) for a,b in zip(snap['joints']['data'],self._hold_q))<=self.holding_tolerance_rad)
+
+    def _release_hot_clutch(self):
+        with self._lock:
+            phase=self._status['state']
+            if self.command_mode!='passthrough' or phase not in ('active','braking','holding'):
+                return False
+            if self._stop_needed or self._fatal or self._unknown:return False
+            self._wanted=None
+            if phase=='active':
+                self._brake_pending=True
+                self._hot_released_s=self.clock()
+                self._hot_fast=0
+                self._hot_quiet_q=self._hot_quiet_s=None
+                self._status.update(state='braking',hot_ready=False)
+                self._diagnose('hot_clutch_released',q_cmd_rad=self._trajectory.q,
+                    v_cmd_rad_s=self._trajectory.v,a_cmd_rad_s2=self._trajectory.a)
+            self._wake.set()
+            return True
+
     def revoke(self, reason, *, fatal=False):
+        if reason=='grip_released' and not fatal and self._release_hot_clutch():return
         # Native revoke is atomic, has no SDK call and takes no I/O mutex.
         self.client.revoke()
         with self._lock:
             # Preserve the initiating host event before secondary feedback or
             # transport failures overwrite the current reason.
             now = self.clock()
+            if self._status['state'] in ('arming','priming') and reason in ('priming_timeout','grip_released'):
+                snap=self._status['last_snapshot']
+                self._cold_abort_anchor=(self._priming_anchor if self._status['state']=='priming' else
+                    tuple(snap['joints']['data']) if snap else None)
             event = dict(reason=str(reason), host_monotonic_s=now,
                 prior_state=self._status["state"],
                 feedback_age_s=None if self._last_observed_s is None else now-self._last_observed_s,
@@ -371,6 +576,7 @@ class J6FollowWorker:
                     if reason in ('grip_released', 'input_timeout'):
                         self.recorder.pause_episode(str(reason), stamp=now)
             self._wanted = None
+            self._status["hot_ready"] = False
             self._engagement_barrier = None
             self._fatal |= fatal
             if fatal:
@@ -410,6 +616,7 @@ class J6FollowWorker:
                     intervals_over_100ms=sum(g>.100 for g in gaps))
                 self._send_metrics_s = now
             return dict(self._status, fatal=self._fatal, stop_result_unknown=self._unknown,
+                immediate_hot_clutch=self.refined_stream,
                 input_timeout_s=self.input_max_age_s,
                 state_observer=self.state_query.status() if self.state_query else None,
                 send_metrics=self._send_metrics,
@@ -454,13 +661,17 @@ class J6FollowWorker:
         with self._lock:
             self._status["last_observation_attempt"] = dict(snapshot=snap,
                 checked_monotonic_s=now, reception_age_s=ages)
-        if self.parallel_state_query and snap.get("observation_pending"):
+        priming=stop_deadline is None and self._status['state']=='priming'
+        if self.parallel_state_query and snap.get("observation_pending") and not (
+                stop_deadline is None and all(0<=v and (k=='state' and not self._state_age_required() or v<=self._reception_limit(k)) for k,v in ages.items())):
             raise ObservationPending("Parallel observation pending: "
                 f"joint_age_s={ages['joints']:.6f}, state_age_s={ages['state']:.6f}", snap)
         # The legacy snapshot validator accepts only motion-permitted states.
-        # During parallel stop confirmation, Paused/Resumed are valid observed
+        # During stop confirmation, Paused/Resumed are valid observed
         # states to keep polling, but can never confirm stopped or authorize send.
-        if (self.parallel_state_query and stop_deadline is not None and
+        # ACK-only SlowStop can return before these transitions finish on either
+        # serial or parallel feedback; both must await RobotStopped below.
+        if (stop_deadline is not None and
                 snap.get("validation_error", {}).get("message") == "Unexpected controller state" and
                 record_ok(snap["joints"]) and record_ok(snap["state"]) and
                 type(snap["state"]["data"]) is int and snap["state"]["data"] in (2, 3)):
@@ -482,8 +693,34 @@ class J6FollowWorker:
         # A longer call allowance never refreshes the reception timestamp of
         # old data, including during stop confirmation.
         now = self.clock()
-        if any(not 0 <= now-float(snap[key]["host_received_monotonic_s"]) <= self.feedback_max_age_s
-               for key in ("joints", "state")):
+        if (stop_deadline is None and not self.parallel_state_query and
+                self.waypoint_feedback_enabled and
+                (callable(getattr(type(self.client), "waypoint_feedback_since", None)) or
+                 callable(getattr(self.client, "waypoint_feedback", None))) and
+                now-float(snap["joints"]["host_received_monotonic_s"]) > self.feedback_max_age_s and
+                0 <= now-float(snap["state"]["host_received_monotonic_s"]) <= self.feedback_max_age_s):
+            # A snapshot may copy joint push before the state request, then
+            # return after a host scheduling pause. The SDK's independent push
+            # cache can already contain newer real observations. Read that
+            # memory once; never relabel the old joint sample with host 'now',
+            # retry SDK I/O, or extend either channel's freshness limit.
+            self._check_measured(joints(snap["joints"]["data"]))
+            fresh = self.measured_feedback()
+            old_joints = dict(snap["joints"])
+            snap = dict(snap, snapshot_joints_before_refresh=old_joints,
+                joints=dict(old_joints, data=list(fresh.q_rad), source=fresh.source,
+                    host_started_monotonic_s=fresh.received_monotonic_s,
+                    host_received_monotonic_s=fresh.received_monotonic_s, duration_s=0.))
+            now = self.clock()
+            with self._lock:
+                self._status["last_snapshot"] = snap
+                self._status["last_observation_attempt"] = dict(snapshot=snap,
+                    checked_monotonic_s=now, reception_age_s={key:
+                        now-float(snap[key]["host_received_monotonic_s"]) for key in ("joints", "state")})
+            self._diagnose("serial_snapshot_joint_refresh", old_joints=old_joints,
+                new_joints=snap["joints"], state=snap["state"])
+        if any(not 0 <= now-float(snap[key]["host_received_monotonic_s"]) <= (self._reception_limit(key) if stop_deadline is None else self.feedback_max_age_s)
+               for key in ("joints", "state") if not (key=='state' and stop_deadline is None and not self._state_age_required())):
             if self.parallel_state_query:
                 raise ObservationPending("Parallel feedback expired during snapshot processing", snap)
             raise RuntimeError("stop_feedback_reception_expired" if stop_deadline is not None
@@ -515,7 +752,7 @@ class J6FollowWorker:
                         for key in ("joints", "state")]
                 if not all(math.isfinite(age) and age >= 0 for age in ages):
                     raise pending  # Invalid/future samples remain a fault.
-                self.revoke("feedback_reception_expired")
+                self.revoke("feedback_reception_expired",fatal=self._status['state']=='priming' or self._hot_feedback_phase())
                 return  # Freshness stops motion; it does not kill observation.
             state = pending.snapshot["state"]
             fresh_state = (record_ok(state) and type(state["data"]) is int and
@@ -529,7 +766,11 @@ class J6FollowWorker:
             # it with host 'now' would reject a recovering push received just
             # before that invalidation as out of order. Readiness and native
             # permission prevent this old sample from authorizing any motion.
-            self.revoke("parallel_observation_pending")
+            # Idle cache misses must yield so B/C can publish fresh feedback.
+            # Re-revoking an already empty intent sets _wake on every cycle,
+            # turning the wait below into a busy loop and starving receivers.
+            if first_wait or self._wanted is not None:
+                self.revoke("parallel_observation_pending")
             if first_wait:
                 self._diagnose("idle_observation_wait",
                     observation=self._status["last_observation_attempt"])
@@ -540,6 +781,7 @@ class J6FollowWorker:
             active = self._may_move and not self._stop_needed and not self._unknown
             wanted = self._wanted
             input_s = self._input_s
+            priming = self._status['state']=='priming'
         observation = self.state_query.status() if self.state_query else None
         # A B result can be published while status() is read. Validate the
         # copied records against a later clock sample, never an earlier one.
@@ -549,14 +791,28 @@ class J6FollowWorker:
             if query and now-query["started_s"] > query["budget_s"]:
                 self.state_query.fail("query_over_budget")
             raw = observation["last_result"]
-            if active:
+            if active and self._state_age_required():
                 age = None if raw is None else now-raw["host_received_monotonic_s"]
                 if age is None or not math.isfinite(age) or age < 0:
                     self.state_query.fail("state_feedback_invalid")
-                elif age > self.feedback_max_age_s:
+                elif age > self._reception_limit('state'):
                     with self._lock:
                         self._status["feedback_ready"] = False
-                    self.revoke("state_reception_expired")
+                    self.revoke("state_reception_expired",fatal=self._hot_feedback_phase())
+            if active and self.waypoint_feedback_enabled:
+                try:
+                    # Nonblocking callback cache read also runs while A's RPC is in flight.
+                    sample=self.measured_feedback()
+                    if priming and self._priming_anchor is not None and max(
+                            abs(a-b) for a,b in zip(sample.q_rad,self._priming_anchor))>math.radians(.1):
+                        self.revoke('priming_pose_deviation',fatal=True)
+                    elif self._status['state']=='holding' and self._hold_q is not None and max(
+                            abs(a-b) for a,b in zip(sample.q_rad,self._hold_q))>self.holding_tolerance_rad:
+                        self.revoke('hot_holding_pose_deviation',fatal=True)
+                except (RuntimeError,ValueError,TypeError,KeyError) as exc:
+                    self.revoke('joint_reception_expired: '+str(exc),fatal=priming or self._hot_feedback_phase())
+        if active and priming and self._priming_started_s is not None and now-self._priming_started_s>self.priming_max_s:
+            self.revoke('priming_timeout')
         if inflight and now-inflight["started_s"] > inflight["budget_s"]:
             reason = {"slow_stop": "stop_completion_over_budget_operator_stop_required",
                       "stop_snapshot": "stop_confirmation_timeout_operator_stop_required"}.get(
@@ -564,10 +820,16 @@ class J6FollowWorker:
             self.revoke(reason, fatal=True)
             with self._lock:
                 self._status["operator_stop_required"] = True
-        elif active and (input_s is None or now-input_s > self.input_max_age_s):
-            self.revoke("input_timeout")
-        elif active and wanted and now-wanted[1] > self.candidate_max_age_s:
-            self.revoke("candidate_timeout")
+        elif active:
+            # A watchdog may be descheduled after copying an intent. Recheck
+            # the current producer stamps under the same lock as revocation.
+            with self._lock:
+                check_now=self.clock()
+                if self._may_move and not self._stop_needed and not self._unknown:
+                    if self._input_s is None or check_now-self._input_s>self.input_max_age_s:
+                        self.revoke('input_timeout')
+                    elif self._wanted and check_now-self._wanted[1]>self.candidate_max_age_s:
+                        self.revoke('candidate_timeout')
 
     def _watchdog(self):
         while not self._watch_quit.wait(.01):
@@ -579,8 +841,17 @@ class J6FollowWorker:
         self._diagnose("slow_stop_call_started")
         try:
             result = self._call("slow_stop", self.client.stop)
+            if self.refined_stream and self.state_query:
+                self._state_poll_paused=False
+                self.state_query.resume()
+                self._diagnose('state_polling_resumed_after_exit')
             with self._lock:
                 self._status["last_stop"] = result
+                leave=result.get('leave_passthrough_result')
+                if self.command_mode=='passthrough':
+                    ended=(leave or result).get('host_received_monotonic_s',self.clock())
+                    self._cold_enter_not_before=ended+self.cold_cooldown_s
+                    self._status['cold_enter_not_before_s']=self._cold_enter_not_before
             self._diagnose("stop_returned", result=result)
             if not record_ok(result):
                 raise RuntimeError("stop_request_failed")
@@ -606,6 +877,8 @@ class J6FollowWorker:
                     time.sleep(.005)
                     continue
                 now = self.clock()
+                if self._cold_abort_anchor is not None and max(abs(a-b) for a,b in zip(q,self._cold_abort_anchor))>math.radians(.1):
+                    self.revoke('priming_abort_pose_deviation',fatal=True)
                 joint_stamp = self._status["last_snapshot"]["joints"]["host_received_monotonic_s"]
                 if self.state_query and (self._status["last_snapshot"]["state"]["host_started_monotonic_s"] < barrier
                                          or joint_stamp < barrier):
@@ -618,7 +891,14 @@ class J6FollowWorker:
                             with self._lock:
                                 self._may_move = self._stop_needed = False
                                 self._active_session = None
+                                self._cold_abort_anchor = None
                                 self._engagement_barrier = None
+                                # Recovery belongs to the exited native stream. A new
+                                # cold entry gets a new point ledger and endpoint.
+                                self._underrun=None
+                                self._next_batch_s=None
+                                self._hot_fast=0
+                                self._status.update(underrun_recovering=False,hot_ready=False,hot_fast=0)
                                 self._status.update(state="fault" if self._fatal else "idle", stop_confirmed=True,
                                                     stop_confirmed_monotonic_s=now)
                             self._diagnose("stop_confirmed", q_rad=list(q), robot_state=state,
@@ -639,6 +919,231 @@ class J6FollowWorker:
                 self._stop_needed = False  # No automatic retry after an unknown stop outcome.
                 self._status.update(state="stop_unknown", fault=str(exc), operator_stop_required=True,
                                     stop_confirmation_error=dict(type=type(exc).__name__,message=str(exc)))
+
+    def _priming_cycle(self, q, state, wanted):
+        now=self.clock()
+        if now-self._priming_started_s>self.priming_max_s:
+            self.revoke('priming_timeout');return
+        if max(abs(a-b) for a,b in zip(q,self._priming_anchor))>math.radians(.1):
+            self.revoke('priming_pose_deviation',fatal=True);return
+        snapshot=self._status['last_snapshot']
+        ready=(self._priming_steps>=self.priming_min_steps and
+            self._priming_fast>=self.priming_fast_count and state in (0,1) and
+            (not self._state_age_required() or 0<=now-snapshot['state']['host_received_monotonic_s']<=.1) and
+            0<=now-snapshot['joints']['host_received_monotonic_s']<=.06)
+        with self._lock:
+            self._status.update(priming_ready=ready,priming_steps=self._priming_steps,
+                priming_consecutive_fast=self._priming_fast,priming_elapsed_s=now-self._priming_started_s)
+            ack=self._priming_reanchor_ack
+            if not ready:self._priming_reanchor_ack=None
+        if ready and (not self._priming_reanchor_required or (ack is not None and now-ack<=.1)):
+            with self._lock:
+                if self._stop_needed or self._fatal or self._wanted is None:return
+                if not self.client.finish_priming(self._token):return
+                transitioned=self.clock()
+                self._trajectory.reset(self._priming_anchor)
+                self._first_active_hold=True
+                self._wanted=(self._priming_anchor,transitioned,wanted[2],wanted[3])
+                self._status.update(state='active',priming_ready=False,
+                    active_since_monotonic_s=transitioned,
+                    active_anchor_rad=list(self._priming_anchor),reanchor_monotonic_s=ack)
+                self._diagnose('priming_completed',steps=self._priming_steps,
+                    consecutive_fast=self._priming_fast,elapsed_s=transitioned-self._priming_started_s,
+                    q_anchor_rad=list(self._priming_anchor),reanchor_monotonic_s=ack,
+                    feedback_snapshot=snapshot)
+            return
+        if self._priming_steps and now-self._last_send_s<self.period_s:return
+        step=self._priming_steps
+        priming_call_limit=self.sdk_budget_s if self.refined_stream else self.priming_limit_s
+        result=self._call('priming_hold',lambda:self.client.send_priming(self._token),budget_s=priming_call_limit)
+        attempt=dict(session=wanted[2],phase='priming',priming_step=step,
+            requested_q_rad=list(self._priming_anchor),sdk_result=result,
+            first_measured_hold=step==0,outcome='sdk_accepted' if record_ok(result) else 'sdk_rejected')
+        with self._lock:
+            self._status['last_attempt']=attempt
+            self._status['submitted']+=1
+        self._diagnose('send_returned',attempt=attempt)
+        if self._stop_needed:return
+        if not record_ok(result) or result.get('revoked_during_call') or result['duration_s']>priming_call_limit:
+            self.revoke('priming_send_failed_or_late',fatal=True);return
+        if self.refined_stream and not self._check_send_streak(result):return
+        self._priming_steps+=1
+        self._priming_fast=self._priming_fast+1 if result['duration_s']<=self.priming_fast_s else 0
+        self._last_send_s=result['host_started_monotonic_s']
+        self._last_sent_q=self._priming_anchor
+
+    def _fixed_tick_send(self, goal, phase):
+        # Wall pacing uses a native monotonic point ledger, not a diagnosis RPC.
+        # The old watermark experiment remains independently selectable.
+        with self._lock:
+            if self._stop_needed or self._fatal or self._status['state']!=phase:return
+        if self.wall_clock_batch:
+            stationary=(phase=='holding' or
+                all(abs(x)<=1e-12 for x in self._trajectory.v+self._trajectory.a))
+            plan=(self.client.clock_batch_plan(self._token,self.batch_point_limit,stationary)
+                if self.refined_stream else self.client.clock_batch_plan(self._token,self.batch_point_limit))
+            if self.refined_stream and plan.get('recovery_required'):
+                self._recover_underrun(plan)
+                return
+            self._next_batch_s=plan['next_due_monotonic_s']
+            if plan['discarded_wall_ticks']:
+                self._diagnose('batch_wall_clock_rebased',plan=plan,phase=phase)
+            slots=plan['point_count'];diagnosis=None
+        elif self._batch_credit<=0 or self.clock()-self._batch_credit_received_s>.035:
+            diagnosis=self._call('batch_diagnosis',self.client.query_diagnosis)
+            self._diagnose('batch_diagnosis_returned',result=diagnosis,phase=phase)
+            if not record_ok(diagnosis):
+                self.revoke('batch_diagnosis_failed',fatal=True);return
+            raw=diagnosis['data']['buffer_data_raw']
+            if type(raw) is not int or raw<0 or raw%6 or raw>48:
+                self.revoke('batch_watermark_invalid_or_excessive',fatal=True);return
+            self._batch_credit=8-raw//6
+            self._batch_credit_received_s=diagnosis['host_received_monotonic_s']
+            self._batch_credit_diagnosis=diagnosis
+        if not self.wall_clock_batch:
+            diagnosis=self._batch_credit_diagnosis
+            slots=min(self.batch_point_limit,self._batch_credit)
+            plan=None
+        with self._lock:
+            if self._stop_needed or self._fatal or self._status['state']!=phase:return
+            if not slots:return
+            first=phase=='active' and self._first_active_hold
+            if phase=='active':
+                wanted=self._wanted
+                if wanted is None:return
+                goal=self.project_target(wanted[0])
+                if wanted[1]<=self._status['active_since_monotonic_s']:goal=self._priming_anchor
+            points,detail=self._trajectory.sample_fixed_ticks(goal,slots,first_anchor=first)
+            if phase=='holding':points=tuple(self._hold_q for _ in points)
+            before=self._last_sent_q
+            if any(max(abs(a-b) for a,b in zip(q,p))>self._trajectory.velocity_rad_s*.005+1e-10
+                   for p,q in zip((before,)+points[:-1],points)):
+                self.revoke('batch_step_limit',fatal=True);return
+        if not self.wall_clock_batch:self._batch_credit-=len(points)
+        try:
+            result=self._call('fixed_tick_batch',lambda:(self.client.send_batch(points,self._token,True)
+                if self.wall_clock_batch else self.client.send_batch(points,self._token)))
+        except RuntimeError as exc:
+            if not self.refined_stream or str(exc)!='Clock recovery required before sending':raise
+            # The ledger can expire while Python samples the curve. Native
+            # rejects before SDK submission; restart at its last sent endpoint.
+            self._diagnose('batch_blocked_for_underrun',phase=phase,wall_clock_plan=plan)
+            self._recover_underrun(dict(plan,recovery_required=True,detected_before_submit=True))
+            return
+        attempt=dict(phase=phase,session=self._active_session,requested_q_rad=list(points[-1]),
+            generated_q_rad=list(goal),trajectory=detail,sdk_result=result,
+            feedback_snapshot=self._status['last_snapshot'],queue_diagnosis=diagnosis,wall_clock_plan=plan)
+        self._diagnose('send_returned',attempt=attempt)
+        with self._lock:
+            self._status['last_attempt']=attempt
+            self._status['submitted']+=1
+            # An intentional stop can revoke the native permit while this RPC
+            # is in flight. Preserve that stop rather than inventing a fault.
+            if self._stop_needed:return
+            if not record_ok(result) or result.get('revoked_during_call') or result['duration_s']>self.sdk_budget_s:
+                self.revoke('batch_send_failed_or_late',fatal=True);return
+            if not self._check_send_streak(result):return
+            self._first_active_hold=False
+            self._hot_fast=self._hot_fast+1 if result['duration_s']<=self.priming_fast_s else 0
+            self._last_send_s=result['host_started_monotonic_s']
+            self._last_sent_q=points[-1]
+            if self.wall_clock_batch:
+                self._next_batch_s=result['clock_epoch_monotonic_s']+(result['clock_sent_points']+
+                    result.get('clock_minimum_points',4)-result.get('clock_cushion_points',8))*.005
+            self._send_samples.append(dict(started_s=self._last_send_s,duration_s=result['duration_s'],
+                session=self._active_session,accepted=True))
+
+    def _recover_underrun(self,plan):
+        """Immediately restart the reference at the submitted endpoint, v=a=0.
+
+        The native ledger detected estimated net starvation after prefill. It
+        still enforces valid C feedback <=500ms and the A-call hard limits.
+        No quiet-window wait or declaration of measured physical rest occurs.
+        """
+        with self._lock:
+            if self._stop_needed or self._fatal:return
+            before=dict(q=self._trajectory.q,v=self._trajectory.v,a=self._trajectory.a)
+            ack=self.client.restart_clock_from_rest(self._token)
+            endpoint=tuple(ack['q_restart_rad'])
+            self._trajectory.restart_from_rest(endpoint)
+            self._first_active_hold=True
+            if self._status['state'] in ('braking','holding'):
+                if hasattr(self._trajectory,'program_enabled'):self._trajectory.program_enabled=False
+                self._hold_q,_=self._trajectory.brake()
+                self._brake_pending=False
+                self._status['hold_q_rad']=list(self._hold_q)
+                self._hot_quiet_q=self._hot_quiet_s=None
+            self._underrun=None
+            self._status.update(underrun_recovering=False,hot_ready=False)
+            self._next_batch_s=self.clock()
+            self._diagnose('underrun_zero_velocity_restart',phase=self._status['state'],
+                recovery=ack,wall_clock_plan=plan,reference_before=before,
+                q_cmd_rad=self._trajectory.q,v_cmd_rad_s=self._trajectory.v,a_cmd_rad_s2=self._trajectory.a,
+                measured_rest_asserted=False,quiet_wait_s=0.)
+
+    def _hot_cycle(self, q, state):
+        now=self.clock()
+        with self._lock:
+            if self._stop_needed or self._fatal:return
+            phase=self._status['state']
+            if state not in (0,1):
+                self.revoke('hot_clutch_invalid_robot_state',fatal=True);return
+            if self._brake_pending:
+                self._hold_q,duration=self._trajectory.brake()
+                self._brake_pending=False
+                self._status['hold_q_rad']=list(self._hold_q)
+                self._diagnose('hot_brake_planned',q_hold_rad=self._hold_q,duration_s=duration)
+            if phase=='braking':
+                if now-self._hot_released_s>self.braking_max_s:
+                    self.revoke('hot_braking_settle_timeout',fatal=True);return
+                if max(abs(a-b) for a,b in zip(q,self._last_sent_q))>self.braking_tracking_limit_rad:
+                    self.revoke('hot_braking_tracking_deviation',fatal=True);return
+                if self._trajectory.stopped:
+                    stamp=self._status['last_snapshot']['joints']['host_received_monotonic_s']
+                    near=max(abs(a-b) for a,b in zip(q,self._hold_q))<=self.holding_tolerance_rad
+                    quiet=self._hot_quiet_q is not None and max(abs(a-b) for a,b in zip(q,self._hot_quiet_q))<=math.radians(.02)
+                    if not near or not quiet:
+                        self._hot_quiet_q,self._hot_quiet_s=q,stamp
+                    elif stamp-self._hot_quiet_s>=.1:
+                        self._holding_since_s=now
+                        self._status.update(state='holding',hot_ready=False)
+                        self._diagnose('hot_holding_entered',q_hold_rad=self._hold_q,
+                            elapsed_s=now-self._hot_released_s,feedback_snapshot=self._status['last_snapshot'])
+                        phase='holding'
+            if phase=='holding':
+                if max(abs(a-b) for a,b in zip(q,self._hold_q))>self.holding_tolerance_rad:
+                    self.revoke('hot_holding_pose_deviation',fatal=True);return
+                stamp=self._status['last_snapshot']['joints']['host_received_monotonic_s']
+                if self._hot_quiet_q is None or max(abs(a-b) for a,b in zip(q,self._hot_quiet_q))>math.radians(.02):
+                    self._hot_quiet_q,self._hot_quiet_s=q,stamp
+                ready=self._hot_admissible(now,self._status['last_snapshot'])
+                self._status.update(hot_ready=ready,hot_fast=self._hot_fast)
+                if now-self._holding_since_s>=self.holding_idle_s:
+                    self.revoke('hot_holding_idle_timeout');return
+            dt=now-self._last_send_s
+            if dt<self.period_s and not self.wall_clock_batch:return
+            if dt>self.send_max_gap_s:
+                self.revoke('send_period_over_budget');return
+            target,detail=(None,None) if self.fixed_tick_batch else self._trajectory.advance(self._hold_q,dt)
+            if phase=='holding':target=self._hold_q
+        if self.fixed_tick_batch:
+            self._fixed_tick_send(self._hold_q,phase);return
+        result=self._call('hot_'+phase,lambda:self.client.send_joints(target,self._token))
+        attempt=dict(phase=phase,session=self._active_session,requested_q_rad=list(target),
+            trajectory=detail,sdk_result=result,feedback_snapshot=self._status['last_snapshot'])
+        self._diagnose('send_returned',attempt=attempt)
+        if self.recorder:self.recorder.record('sdk_command',phase='returned',attempt=attempt)
+        with self._lock:
+            self._status['last_attempt']=attempt
+            self._status['submitted']+=int(result.get('sdk_invoked') is not False)
+            if not record_ok(result) or result.get('sdk_invoked') is False or result['duration_s']>self.sdk_budget_s:
+                self.revoke('hot_send_failed_or_late',fatal=True);return
+            if not self._check_send_streak(result):return
+            self._hot_fast=self._hot_fast+1 if result['duration_s']<=self.priming_fast_s else 0
+            self._last_send_s=result['host_started_monotonic_s']
+            self._last_sent_q=target
+            self._send_samples.append(dict(started_s=self._last_send_s,duration_s=result['duration_s'],
+                session=self._active_session,accepted=True))
 
     def _cycle(self):
         with self._lock:
@@ -671,6 +1176,7 @@ class J6FollowWorker:
                 or joint_sample is None or not joint_sample.valid
                 or not 0 <= joint_age < self.feedback_max_age_s
                 or (wanted is not None and active_session is None))
+        if self._status['state']=='priming':needs_observation=True
         if needs_observation:
             try:
                 q, state = self._observe()
@@ -678,10 +1184,15 @@ class J6FollowWorker:
                 self._handle_pending_observation(pending)
                 return
         else:
-            q, state = self.cache.require_recent(.2).q_rad, self._robot_state
+            q, state = self.cache.require_recent(self._reception_limit()).q_rad, self._robot_state
         with self._lock:
             wanted, fatal = self._wanted, self._fatal
             input_s, active_session = self._input_s, self._active_session
+        if not fatal and self._status['state'] in ('braking','holding'):
+            if input_s is None or not 0<=self.clock()-input_s<=self.input_max_age_s:
+                self.revoke('input_timeout');return
+            self._hot_cycle(q,state)
+            return
         if fatal or wanted is None:
             if not self._may_move and state != 0:
                 with self._lock:
@@ -699,7 +1210,12 @@ class J6FollowWorker:
         if active_session is not None and self._active_source != wanted[3]:
             self.revoke('control_source_changed')
             return
+        if self._status['state']=='priming':
+            self._priming_cycle(q,state,wanted)
+            return
+        first_hold = False
         if active_session is None:
+            if now<self._cold_enter_not_before:return
             if self.state_query:
                 barrier = self._engagement_barrier
                 if barrier is None or barrier[0] != wanted[2]:
@@ -727,6 +1243,10 @@ class J6FollowWorker:
                 with self._lock:
                     if self._stop_needed or self._fatal or self._wanted is None:
                         return
+                if self.refined_stream:
+                    self._state_poll_paused=True
+                    self.state_query.pause()
+                    self._diagnose('state_polling_paused_before_entry')
                 entry = self._call("enter_passthrough", lambda:self.client.enter_passthrough(token))
                 self._diagnose("passthrough_enter_returned", result=entry)
                 with self._lock:
@@ -744,23 +1264,52 @@ class J6FollowWorker:
                 self._last_sent_q = q
                 self._home_velocity = (0.,)*6
                 self._last_send_s = self.clock()
-                self._status.update(state="active", fault=None)
+                self._status.update(state="priming" if self.command_mode=='passthrough' else "active", fault=None)
+                if self.command_mode=='passthrough':
+                    self._priming_anchor=tuple(entry.get('anchor_rad',q))
+                    self._priming_started_s=entry['host_received_monotonic_s']
+                    self._batch_credit=0
+                    self._slow_sends=0
+                    self._priming_steps=self._priming_fast=0
+                    self._priming_reanchor_ack=None
+                    self._status.update(priming_ready=False,active_since_monotonic_s=None,
+                        priming_anchor_rad=list(self._priming_anchor),
+                        priming_started_monotonic_s=self._priming_started_s)
+            if self.command_mode != "passthrough":
+                return
+            self._priming_cycle(q,state,wanted)
             return
-        if now-self._last_send_s < self.period_s:
+        if not first_hold and now-self._last_send_s < self.period_s and not self.wall_clock_batch:
             return
         if now-self._last_send_s > self.send_max_gap_s:
             # A missed cadence is recoverable only after confirmed stop and a
             # new release/press. SDK errors/timeouts remain fatal separately.
             self.revoke("send_period_over_budget")
             return
+        if self._status['state'] in ('braking','holding') or self._wanted is None:return
+        if self.fixed_tick_batch:
+            self._fixed_tick_send(wanted[0],'active');return
         projected = self.project_target(wanted[0])
         desired = (projected[5]-self.anchor[5])/math.radians(1.)
         if self.six_axis:
-            # Forward latest IK positions without host intermediate targets.
-            # Passthrough has no assumed FollowMode profile interpolation.
+            # The trajectory is advanced only for one real submitted frame.
             target = projected
-            offset = desired
-            if wanted[3] == 'home_return':
+            trajectory_detail=None
+            if self.command_mode == "passthrough":
+                if self._first_active_hold:
+                    # Exactly one immutable zero-speed anchor frame, even if
+                    # a new IK target arrives before the first ACTIVE send.
+                    self._trajectory.reset(self._priming_anchor)
+                    target=self._priming_anchor
+                    trajectory_detail=dict(first_active_anchor=True,q_cmd_rad=target,
+                        v_cmd_rad_s=self._trajectory.v,a_cmd_rad_s2=self._trajectory.a,
+                        dt_capped=False,target_replan_deferred=False)
+                else:
+                    if wanted[1]<=self._status['active_since_monotonic_s']:
+                        projected=self._priming_anchor
+                    target,trajectory_detail=self._trajectory.advance(projected,now-self._last_send_s)
+            offset = (target[5]-self.anchor[5])/math.radians(1.)
+            if wanted[3] in ('home_return', 'placement'):
                 from .home import bounded_home_step
                 # dt 放宽到 3×周期（2026-11-01）：双峰应答下实际间隔 >周期时，
                 # 原封顶让目标斜坡只跑名义速度的 ~40%，跟踪差距稳定增长触发
@@ -774,7 +1323,8 @@ class J6FollowWorker:
             offset = min(self._last_sent_offset+step, max(self._last_sent_offset-step,desired))
             target = self.anchor[:5]+(self.anchor[5]+math.radians(offset),)
         attempt = dict(generated_q_rad=list(wanted[0]), requested_q_rad=list(target), generated_monotonic_s=wanted[1],
-            control_source=wanted[3],
+            phase='active',trajectory=trajectory_detail if self.six_axis else None,
+            control_source=wanted[3], first_measured_hold=first_hold,
             session=wanted[2], requested_offset_deg=offset, outcome="in_flight_result_unknown",
             host_attempt_monotonic_s=now, previous_offset_deg=self._last_sent_offset,
             feedback_snapshot=self._status["last_snapshot"])
@@ -817,23 +1367,30 @@ class J6FollowWorker:
                     "Six-axis feedback/state age or send interval violated" and
                     all(math.isfinite(age) and age >= 0 for age in ages) and
                     any(age > self.feedback_max_age_s for age in ages)):
-                self.revoke("feedback_reception_expired")
+                self.revoke("feedback_reception_expired",fatal=self._hot_feedback_phase())
                 return
             self.revoke("native_send_refused: "+result.get("local_refusal_reason", "unknown"), fatal=True)
             return
         if not record_ok(result) or result["duration_s"] > self.sdk_budget_s:
             self.revoke("follow_failed_or_late", fatal=True)
             return
+        if not self._check_send_streak(result):return
+        self._first_active_hold=False
+        self._hot_fast=self._hot_fast+1 if result['duration_s']<=self.priming_fast_s else 0
         self._last_send_s = result["host_started_monotonic_s"]
         self._last_sent_offset = offset
         self._last_sent_q = target
-        if wanted[3] == 'home_return':
+        if wanted[3] in ('home_return', 'placement'):
             self._home_velocity = home_velocity
         # Never re-authorize after a call returned following revoke.
 
     def _wait_timeout_s(self):
         """Wake by the next send deadline without adding a fixed 5 ms delay."""
         with self._lock:
+            if not self._may_move or self._stop_needed or self._unknown:
+                return .005
+            if self.wall_clock_batch and self._status['state'] in ('active','braking','holding') and self._next_batch_s is not None:
+                return max(0.,min(.02,self._next_batch_s-self.clock()))
             if self._wanted is not None and self._active_session is not None and self._last_send_s is not None:
                 return max(0., min(.005, self._last_send_s+self.period_s-self.clock()))
         return .005
@@ -845,7 +1402,12 @@ class J6FollowWorker:
                     self._cycle()
                 except Exception as exc:
                     with self._lock:
-                        cancelled_before_sdk = self._stop_needed and str(exc) == "Send permission revoked"
+                        cancelled_before_sdk = self._stop_needed and str(exc) in (
+                            "Send permission revoked", "Clock batch permission revoked or wrong mode",
+                            "Batch send permission revoked or wrong mode")
+                    if (self._status['state']=='priming' and str(exc)=='Priming deadline expired'):
+                        self.revoke('priming_timeout')
+                        continue
                     if not cancelled_before_sdk:
                         self.cache.invalidate("follow_worker_failed")
                         self.revoke(type(exc).__name__+": "+str(exc), fatal=True)
