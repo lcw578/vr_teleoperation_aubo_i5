@@ -28,6 +28,7 @@ class Driver:
         self.position = 834
         self.goal = 0
         self.torque = 0
+        self.mode = 3
         self.writes = []
         self.hardware_error = 0
     def read_position(self): return True, self.position, 'ok'
@@ -35,12 +36,13 @@ class Driver:
     def read_current(self): return True, 0, 'ok'
     def read_torque_enable(self): return True, self.torque, 'ok'
     def read_hardware_error(self): return True, self.hardware_error, 'ok'
-    def read_operation_mode(self): return True, 3, 'ok'
+    def read_operation_mode(self): return True, self.mode, 'ok'
     def read_register(self, *args, **kwargs): return self.goal
     def write_register(self, addr, value, width, **kwargs):
         self.writes.append((addr, value, width))
         if addr == 532: self.goal = value
         elif addr == 512: self.torque = value
+        elif addr == 0x0021: self.mode = value
     def close_gripper(self):
         self.writes.append(('close',))
         self.position = self.goal = self.POSITION_CLOSE
@@ -77,6 +79,20 @@ class GripperTests(unittest.TestCase):
         self.gripper._cycle()
         self.assertEqual(self.driver.writes[-1], ('open',))
         self.assertEqual(sum(w == ('open',) for w in self.driver.writes), 1)
+
+    def test_startup_selects_position_mode_only_when_torque_is_off_and_stationary(self):
+        self.driver.mode = 1
+        self.gripper._prepare_position_mode()
+        self.assertEqual(self.driver.mode, 3)
+        self.assertEqual(self.driver.torque, 0)
+        self.assertEqual(self.driver.writes, [(0x0021, 3, 1)])
+
+    def test_startup_refuses_mode_change_when_torque_is_enabled(self):
+        self.driver.mode = 1
+        self.driver.torque = 1
+        with self.assertRaisesRegex(RuntimeError, 'Cannot select position mode safely'):
+            self.gripper._prepare_position_mode()
+        self.assertEqual(self.driver.writes, [])
     def test_reconnect_and_timeout_held_press_need_release(self):
         self.feed(False)
         self.feed(True, epoch='new')
@@ -271,7 +287,7 @@ class GripperTests(unittest.TestCase):
         self.driver.hardware_error = 1
         rows = self.record_real_events(lambda recorder: self.run_fake_serial_owner())
         self.assertEqual(self.gripper.status()['state'], 'fault')
-        self.assertIn('Invalid or stale', self.gripper.status()['fault'])
+        self.assertIn('Gripper hardware error', self.gripper.status()['fault'])
         self.assertEqual([r['event'] for r in rows], ['fault'])
         self.assertEqual(rows[0]['error'], self.gripper.status()['fault'])
         self.assertEqual(self.driver.writes, [])

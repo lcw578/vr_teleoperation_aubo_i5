@@ -1,13 +1,13 @@
-"""Local synthetic-only raw -> real LeRobot v3.0 -> reload acceptance check."""
+"""Synthetic-only three RGB streams + admitted planner/tool -> real LeRobot v3 -> QA."""
 import argparse
 import json
 from pathlib import Path
 import sys
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from teleop.aubo.recording import RawRecorder
-from teleop.aubo.feedback import Feedback
-from teleop.aubo.export_lerobot import export_recording
+from multimodal_fixture import make_recording
+from teleop.aubo.export_lerobot import DEFAULT_TASK, export_recording
+from teleop.aubo.check_dataset import check_dataset
 
 
 def main():
@@ -15,45 +15,77 @@ def main():
     parser.add_argument('--output',type=Path,required=True)
     args=parser.parse_args()
     args.output.mkdir(parents=True,exist_ok=False)
-    now=[1000.]
-    recorder=RawRecorder(args.output/'raw',task='ISOLATED SYNTHETIC TEST: joint trajectory; no hardware',
-        metadata=dict(synthetic=True, hardware_connected=False),clock=lambda:now[0])
-    recorder.begin()
-    for n in range(40):
-        now[0]=1000.+n*.05
-        q=[.001*n]*6
-        attempt=dict(outcome='sdk_accepted',recording_episode_id=0,sdk_result=dict(return_code=0,
-            sdk_invoked=True,target_rad=q,host_started_monotonic_s=now[0]-.01,
-            host_received_monotonic_s=now[0]-.001))
-        recorder.record('sdk_command',phase='returned',attempt=attempt)
-        recorder.sample(feedback=Feedback(tuple(q),now[0]-.002,'isolated_synthetic',True,0),
-            hardware=dict(state='active'),paused=n in (17,18))
-    recorder.end()
-    # Wait only for this local writer's completed save, never for hardware.
-    import time
-    deadline=time.monotonic()+2.
-    while recorder.status()['pending_saves']:
-        if time.monotonic()>deadline:raise AssertionError('Synthetic save timed out')
-        time.sleep(.01)
-    recorder.begin();recorder.end(disposition='invalid');recorder.close()
-    report=export_recording(args.output/'raw',args.output/'lerobot',repo_id='local/aubo_synthetic_acceptance')
-    from lerobot.datasets.lerobot_dataset import LeRobotDataset
-    dataset=LeRobotDataset('local/aubo_synthetic_acceptance',root=args.output/'lerobot',
-                          download_videos=False)
-    assert dataset.meta.info.codebase_version=='v3.0'
-    assert dataset.num_episodes==2,report
-    assert dataset.num_frames>10
-    assert not dataset.meta.camera_keys
-    assert dataset.features['observation.state']['shape']==(6,)
-    assert dataset.features['action']['shape']==(6,)
-    for index in range(dataset.num_frames):
-        row=dataset[index]
-        assert row['action'].shape==(6,)
-        assert row['observation.state'].shape==(6,)
-        assert row['source.command_returned_monotonic_s'].item()<=row['source.host_monotonic_s'].item()
-        assert int(row['source.episode_id'].item())==0
-    report.update(verified_frames=dataset.num_frames,verified_episodes=dataset.num_episodes,
-                  codebase_version=dataset.meta.info.codebase_version,synthetic=True)
+    recorder=make_recording(args.output/'raw')
+    report=export_recording(recorder.path,args.output/'lerobot',repo_id='local/aubo_multimodal_synthetic')
+    quality=check_dataset(args.output/'lerobot')
+    assert quality['verified_frames']>=85,quality
+    assert quality['verified_episodes']==1,quality
+    assert quality['fps']==30
+    assert quality['pause_ticks']['clutch_reanchor']>=4
+    assert quality['stage_ticks']['transport']>=25
+    assert quality['stage_ticks']['release']>=12
+    assert quality['tool_events']['exported_close_transitions']==1
+    assert quality['tool_events']['exported_open_transitions']==1
+    assert quality['cameras']['scene_right']['missing_frame_numbers']==1
+    assert quality['cameras']['wrist']['missing_frame_numbers']==0
+    assert abs(quality['camera_selection_spread']['max_ms']-2.)<1e-4
+    # A one-camera raw session exports and validates without synthetic views.
+    single = make_recording(args.output/'raw_single', camera_keys=('scene_left',))
+    single_report=export_recording(single.path,args.output/'lerobot_single',
+        repo_id='local/aubo_multimodal_single_camera')
+    single_quality=check_dataset(args.output/'lerobot_single')
+    assert single_report['active_cameras']==['scene_left']
+    assert single_quality['active_cameras']==['scene_left']
+    assert list(single_quality['cameras'])==['scene_left']
+    assert single_quality['camera_selection_spread']['count']==0
+    assert all(json.loads(line)['camera_spread_s'] is None
+               for line in (args.output/'lerobot_single/tick_quality.jsonl').read_text().splitlines())
+    # Exercise real writer split vs explicitly stitched metadata filters as well.
+    filtered=export_recording(recorder.path,args.output/'filtered',repo_id='local/aubo_multimodal_filtered',
+                              exclude_pause_types=['clutch_reanchor'])
+    filtered_quality=check_dataset(args.output/'filtered')
+    assert filtered_quality['verified_episodes']==2,filtered_quality
+    assert filtered_quality['verified_frames']<quality['verified_frames']
+    stitched=export_recording(recorder.path,args.output/'stitched',repo_id='local/aubo_multimodal_stitched',
+                              exclude_pause_types=['clutch_reanchor'],stitch_filtered=True)
+    stitched_quality=check_dataset(args.output/'stitched')
+    assert stitched_quality['verified_episodes']==1
+    assert stitched['segments'][0]['discontinuities']
+    # Real retry export must retain both cycles without requiring four marks.
+    retry_raw=make_recording(args.output/'raw_retry', camera_keys=('wrist',), retry=True)
+    retry_export=export_recording(retry_raw.path,args.output/'retry',repo_id='local/aubo_retry_synthetic',
+                                 infer_stages=True)
+    retry_quality=check_dataset(args.output/'retry')
+    assert retry_quality['task']==DEFAULT_TASK
+    assert retry_quality['verified_episodes']==1
+    assert retry_quality['tool_events']['exported_close_transitions']==2
+    assert retry_quality['tool_events']['exported_open_transitions']==2
+    assert retry_quality['retry_analysis']['0']['attempt_count']==2
+    assert retry_quality['retry_analysis']['0']['retry_count']==1
+    assert retry_quality['retry_analysis']['0']['physical_success_verified'] is False
+    assert set(retry_quality['stage_ticks'])=={'approach','align','retry','clamp_cut','transport','release'}
+    assert set(retry_quality['episodes'][0]['attempt_ticks'])=={'1','2'}
+    # Provenance tampering must fail even when state/action/video are valid.
+    alignment=args.output/'retry/alignment.jsonl'
+    original=alignment.read_text()
+    lines=original.splitlines()
+    first=json.loads(lines[0]);first['attempt_id']=99
+    lines[0]=json.dumps(first)
+    alignment.write_text('\n'.join(lines)+'\n')
+    try:
+        check_dataset(args.output/'retry')
+    except ValueError as error:
+        assert 'Attempt provenance mismatch' in str(error),error
+    else:
+        raise AssertionError('Corrupted attempt provenance accepted')
+    finally:
+        alignment.write_text(original)
+    check_dataset(args.output/'retry')
+    report.update(verified_frames=quality['verified_frames'], verified_episodes=quality['verified_episodes'],
+                  synthetic=True, hardware_connected=False, quality=quality,
+                  single_camera=single_quality,
+                  filtered_episodes=filtered_quality['verified_episodes'],
+                  stitched_episodes=stitched_quality['verified_episodes'], retry=retry_quality)
     (args.output/'acceptance.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps(report,indent=2))
 

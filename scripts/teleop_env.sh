@@ -14,6 +14,9 @@ teleop_env() {
   unset CONDA_PREFIX CONDA_DEFAULT_ENV CONDA_PROMPT_MODIFIER
   export CONDA_SHLVL=0
   export PYTHONNOUSERSITE=1 PIP_USER=0
+  if [[ -n ${TELEOP_EXTRA_PYTHONPATH:-} ]]; then
+    export PYTHONPATH="$TELEOP_EXTRA_PYTHONPATH"
+  fi
   export PATH="$(dirname "$TELEOP_PYTHON"):/usr/local/bin:/usr/bin:/bin:$HOME/.local/bin"
   export VIRTUAL_ENV="$(dirname "$(dirname "$TELEOP_PYTHON")")"
 }

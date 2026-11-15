@@ -80,7 +80,7 @@ def test():
                 assert '左摇杆左推＝作废当前段并重启循环' in html
                 assert '右摇杆按下可添加事件标记' in html
                 assert 'left X=start' not in html
-                assert '输入超时会暂停' in html and '重新按下并成功接合后续录同一段' in html
+                assert '输入超时会标记暂停' in html and '重新接合后继续同一段' in html
                 with urllib.request.urlopen(base+'/static/recording_hud.js',timeout=.5) as response:
                     hud_script=response.read().decode()
                 assert 'VRTeleopRecordingHud' in hud_script

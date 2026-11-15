@@ -273,7 +273,8 @@ class HomeRuntimeTests(unittest.TestCase):
                 recorder.close();self.runtime.recorder=self.worker.recorder=None
             rows=[json.loads(line) for line in (path/'streams.jsonl').read_text().splitlines()]
             self.assertTrue(any(r['kind']=='home_return' and r['state']=='complete' for r in rows))
-            self.assertFalse(any(r['kind']=='sdk_command' and r['phase']=='returned' for r in rows))
+            self.assertTrue(any(r['kind']=='sdk_command' and r['phase']=='returned' for r in rows))
+            self.assertTrue(any(r['kind']=='planner_target' and r['control_source']=='home_return' for r in rows))
             self.assertFalse(any(r['kind']=='resume' for r in rows))
             self.assertEqual(segments(rows,25),[])
 
@@ -415,7 +416,7 @@ class HomeOneshotTests(unittest.TestCase):
             interrupted=[r for r in rows if r['kind']=='home_return' and r['state']=='cancelled']
             self.assertEqual(len(interrupted),1)
             self.assertEqual(interrupted[0]['failure_evidence']['hardware']['fault'],'synthetic_feedback_fault')
-            self.assertFalse(any(r['kind']=='sdk_command' for r in rows))
+            self.assertTrue(any(r['kind']=='sdk_command' for r in rows))
 
     def test_arrival_then_stop_response_timeout_never_reports_completion(self):
         self.prepare_home();self.tick(False);self.tick(False)

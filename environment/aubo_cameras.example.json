@@ -1,0 +1,23 @@
+{
+  "scene_left": {
+    "enabled": true,
+    "serial": "f1150496",
+    "width": 1280,
+    "height": 720,
+    "fps": 30
+  },
+  "scene_right": {
+    "enabled": true,
+    "serial": "f1422449",
+    "width": 1280,
+    "height": 720,
+    "fps": 30
+  },
+  "wrist": {
+    "enabled": true,
+    "serial": "REPLACE_WITH_D405_SERIAL",
+    "width": 640,
+    "height": 480,
+    "fps": 30
+  }
+}

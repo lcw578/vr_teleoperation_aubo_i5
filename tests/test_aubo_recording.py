@@ -117,6 +117,7 @@ class ButtonTests(unittest.TestCase):
         buttons.feed(frame(2,10.02,right=(3,)),10.02)
         buttons.feed(frame(3,10.03,right=(3,)),10.03)
         self.assertEqual([v['command'] for v in buttons.drain()],['mark'])
+
     def test_overflow_is_visible(self):
         buttons=OperatorButtons(capacity=1)
         self.assertTrue(buttons.request('mark',10.))
@@ -148,6 +149,20 @@ class RecordingTests(unittest.TestCase):
         _,_,episodes=load_recording(self.path)
         self.assertEqual(episodes,{})
         self.assertIn('mark',(self.path/'streams.jsonl').read_text())
+    def test_stream_fsync_occurs_at_episode_and_session_boundaries_only(self):
+        with patch('teleop.aubo.recording.os.fsync') as sync:
+            recorder=RawRecorder(self.path,task='Fsync boundary test')
+            sync.reset_mock()
+            try:
+                time.sleep(.12)
+                sync.assert_not_called()
+                recorder.begin()
+                recorder.end()
+                recorder._queue.join()
+                self.assertGreaterEqual(sync.call_count,2)  # stream and episode summary
+            finally:
+                recorder.close()
+            self.assertGreaterEqual(sync.call_count,4)  # session stream and status too
     def test_status_exposes_active_episode_elapsed_time_and_keeps_previous_save(self):
         clock=Clock();recorder=RawRecorder(self.path,task='Isolated synthetic HUD test',clock=clock)
         try:
@@ -188,7 +203,7 @@ class RecordingTests(unittest.TestCase):
         self.assertEqual(len(samples),2)
         self.assertEqual(samples[0]['feedback_received_monotonic_s'],feedback.received_monotonic_s)
         self.assertEqual(samples[1]['feedback_received_monotonic_s'],feedback.received_monotonic_s)
-    def test_pause_tag_holds_same_episode_and_suspends_regular_records(self):
+    def test_pause_tag_keeps_continuous_raw_records_in_same_episode(self):
         clock=Clock();recorder=RawRecorder(self.path,task='Synthetic pause lifecycle',clock=clock)
         try:
             recorder.begin()
@@ -202,10 +217,12 @@ class RecordingTests(unittest.TestCase):
             self.assertEqual(status['pause_reason'],'grip_released')
             elapsed=status['active_episode_elapsed_s']
             self.assertFalse(recorder.sample(feedback=feedback,hardware=dict(state='idle')))
-            self.assertFalse(recorder.record('xr',frame={}))
-            self.assertFalse(recorder.record('sdk_command',phase='returned'))
+            self.assertTrue(recorder.record('xr',frame={}))
+            self.assertTrue(recorder.record('sdk_command',phase='returned'))
             clock.advance(2.)
             self.assertAlmostEqual(recorder.status()['active_episode_elapsed_s'],elapsed)
+            self.assertTrue(recorder.sample(feedback=feedback,hardware=dict(state='holding')))
+            clock.advance(.04)
             self.assertTrue(recorder.resume_episode(stamp=clock()))
             self.assertEqual(recorder.status()['active_episode'],0)
             self.assertTrue(recorder.sample(feedback=feedback,hardware=dict(state='active')))
@@ -217,7 +234,9 @@ class RecordingTests(unittest.TestCase):
         self.assertEqual([row['kind'] for row in rows].count('resume'),1)
         self.assertEqual({row['episode_id'] for row in rows},{0})
         summary=json.loads((self.path/'episodes/episode_000000.json').read_text())
-        self.assertEqual(summary['sample_count'],2)
+        self.assertEqual(summary['sample_count'],3)
+        paused_samples=[row for row in rows if row['kind']=='sample' and row['recording_paused']]
+        self.assertEqual(paused_samples[0]['pause_type'],'clutch_reanchor')
     def test_busy_cycle_sampling_keeps_nominal_cadence_without_catchup(self):
         clock=Clock();recorder=RawRecorder(self.path,task='Isolated synthetic test',clock=clock)
         recorder.begin()
@@ -226,7 +245,7 @@ class RecordingTests(unittest.TestCase):
             clock.advance(.005)
         recorder.end();recorder.close()
         summary=json.loads((self.path/'episodes/episode_000000.json').read_text())
-        self.assertIn(summary['sample_count'],(25,26))
+        self.assertIn(summary['sample_count'],(30,31))
     def test_slow_writer_never_blocks_producer_and_overflow_prevents_export(self):
         gate=threading.Event();original=RawRecorder._run
         def stalled(recorder):
@@ -555,7 +574,7 @@ class RuntimeControlTests(unittest.TestCase):
             finally:
                 recorder.close();self.runtime.recorder=self.worker.recorder=None
 
-    def test_two_healthy_episodes_without_grip_are_saved_with_zero_samples(self):
+    def test_two_healthy_episodes_without_grip_keep_observations_but_send_no_motion(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'synthetic'
             recorder=RawRecorder(path,task='Synthetic no Grip episodes',clock=self.clock)
@@ -576,7 +595,7 @@ class RuntimeControlTests(unittest.TestCase):
                 recorder.close();self.runtime.recorder=self.worker.recorder=None
             summaries=[json.loads(p.read_text()) for p in sorted((path/'episodes').glob('*.json'))]
             self.assertEqual(len(summaries),2)
-            self.assertTrue(all(s['sample_count']==0 and s['disposition']=='saved' for s in summaries))
+            self.assertTrue(all(s['sample_count']>0 and s['disposition']=='saved' for s in summaries))
 
     def test_actual_worker_commands_and_button_episode_end_are_captured(self):
         with tempfile.TemporaryDirectory() as directory:

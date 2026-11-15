@@ -32,7 +32,8 @@ assert.match(view.promptLine1, /↑ 结束录制/);
 assert.match(view.promptLine1, /↓ 未分配/);
 assert.match(view.promptLine2, /右 Grip/);
 assert.doesNotMatch(view.promptLine1 + view.promptLine2, /左\s*X|左\s*Y/);
-assert.match(view.promptLine3, /左 Y：按住回原位/);
+assert.match(view.promptLine3, /左 Y：按住回位/);
+assert.match(view.promptLine3, /右 A：按住半倍率/);
 assert.match(view.promptLine3, /无需右 Grip/);
 view = hud.model({home_return:{state:'moving'}, collection:{enabled:false,state:'disabled'}});
 assert.strictEqual(view.title, '正在回原位');
@@ -54,10 +55,23 @@ view = hud.model({collection:{enabled:true,state:'recording',active_episode:0,
 assert.strictEqual(view.title, '录制状态连接中断');
 assert.strictEqual(view.detail, '最后确认：第 1 段 · 录制中');
 assert.strictEqual(view.previous, '状态可能已过期');
+view = hud.model({precision_mode:true, home_return:{trigger:'oneshot',enabled:true},
+  last_mark:{count:3, recorded:true, episode_elapsed_s:14.3, age_s:.1}, collection:{enabled:true,state:'recording',active_episode:0,
+  pending_saves:0,last_result:null}}, {connection:'connected'});
+assert.match(view.notice, /已记录标记 #3/);
+assert.match(view.notice, /本段 00:14/);
+assert.match(view.notice, /精细 0.5×/);
+assert.strictEqual(view.markRecent, true);
+assert.match(view.promptLine3, /单击回位／再按取消/);
+view = hud.model({last_mark:{count:4,recorded:false,age_s:0},collection:{enabled:true,state:'ready'}}, {});
+assert.match(view.notice, /标记未保存 #4/);
+assert.strictEqual(view.markRecent, false);
+view = hud.model({last_mark:{count:4,recorded:true,age_s:4},collection:{enabled:true,state:'ready'}}, {connection:'disconnected'});
+assert.strictEqual(view.notice, '');
 view = hud.model({collection:{enabled:true,state:'paused',active_episode:0,
   pause_reason:'grip_released',active_episode_elapsed_s:12,last_result:null}}, {connection:'connected'});
-assert.strictEqual(view.title, '第 1 段 · 已暂停');
-assert.match(view.detail, /重新按下右 Grip/);
+assert.strictEqual(view.title, '第 1 段 · 操作暂停/仍在采集');
+assert.match(view.detail, /图像、关节与工具原始记录继续写入/);
 for (const collection of [
   {enabled:true,state:'paused',active_episode:1,pause_reason:'awaiting_grip'},
   {enabled:true,state:'ready',active_episode:null},
@@ -90,7 +104,7 @@ assert.ok(hudScriptIndex >= 0);
 assert.ok(clientScriptIndex >= 0);
 assert.ok(hudScriptIndex < clientScriptIndex,
   'HUD formatter must load before the XR client');
-assert.match(scriptSources[hudScriptIndex], /\?v=9$/);
+assert.match(scriptSources[hudScriptIndex], /\?v=10$/);
 assert.match(scriptSources[clientScriptIndex], /\?v=42$/);
 const client = fs.readFileSync(path.join(__dirname,
   '../third_party/vr-teleop-kit/src/vr_teleop_kit/relay/web/client.js'), 'utf8');

@@ -450,13 +450,20 @@ class J6FollowWorker:
             self._wanted=(self._priming_anchor,stamp,session,self._active_source)
             return True
 
+    def _record_planner_input(self, q, mode, source=None):
+        if self.recorder:
+            self.recorder.planner_target(q, control_source=source or self._active_source or 'teleop',
+                                        mode=mode, control_session=self._active_session,
+                                        stamp=self.clock())
+
     def offer(self, candidate, *, control_source='teleop'):
         # Candidate is the author's output; the backend only bounds submission.
         try:
             q = joints(candidate.q_rad)
             stamp = float(candidate.generated_monotonic_s)
             valid = (control_source in ('teleop', 'home_return', 'placement') and
-                     (control_source not in ('home_return', 'placement') or (self.six_axis and self.command_mode == 'follow')) and
+                     (control_source != 'home_return' or self.six_axis) and
+                     (control_source != 'placement' or (self.six_axis and self.command_mode == 'follow')) and
                      math.isfinite(stamp) and 0 <= self.clock() - stamp <= self.candidate_max_age_s)
         except (ValueError, TypeError, OverflowError):
             valid = False
@@ -537,6 +544,8 @@ class J6FollowWorker:
         # Native revoke is atomic, has no SDK call and takes no I/O mutex.
         self.client.revoke()
         with self._lock:
+            if self.recorder:
+                self.recorder.invalidate_planner(reason, stamp=self.clock())
             # Preserve the initiating host event before secondary feedback or
             # transport failures overwrite the current reason.
             now = self.clock()
@@ -941,7 +950,18 @@ class J6FollowWorker:
                 if self._stop_needed or self._fatal or self._wanted is None:return
                 if not self.client.finish_priming(self._token):return
                 transitioned=self.clock()
+                # Automatic home uses the same bounded planner and sender as
+                # teleop, with the home speed/acceleration caps. Restore the
+                # selected teleop profile on the next cold engagement.
+                limits=self.motion_profile.radians
+                if wanted[3]=='home_return':
+                    from .home import HOME_SPEED_RAD_S, HOME_ACCEL_RAD_S2
+                    limits=(min(limits[0],HOME_SPEED_RAD_S),
+                            min(limits[1],HOME_ACCEL_RAD_S2),limits[2])
+                (self._trajectory.velocity_rad_s,self._trajectory.acceleration_rad_s2,
+                 self._trajectory.jerk_rad_s3)=limits
                 self._trajectory.reset(self._priming_anchor)
+                self._record_planner_input(self._priming_anchor, 'active', wanted[3])
                 self._first_active_hold=True
                 self._wanted=(self._priming_anchor,transitioned,wanted[2],wanted[3])
                 self._status.update(state='active',priming_ready=False,
@@ -1013,6 +1033,7 @@ class J6FollowWorker:
                 if wanted is None:return
                 goal=self.project_target(wanted[0])
                 if wanted[1]<=self._status['active_since_monotonic_s']:goal=self._priming_anchor
+            self._record_planner_input(goal, phase)
             points,detail=self._trajectory.sample_fixed_ticks(goal,slots,first_anchor=first)
             if phase=='holding':points=tuple(self._hold_q for _ in points)
             before=self._last_sent_q
@@ -1091,6 +1112,7 @@ class J6FollowWorker:
             if self._brake_pending:
                 self._hold_q,duration=self._trajectory.brake()
                 self._brake_pending=False
+                self._record_planner_input(self._hold_q, 'braking')
                 self._status['hold_q_rad']=list(self._hold_q)
                 self._diagnose('hot_brake_planned',q_hold_rad=self._hold_q,duration_s=duration)
             if phase=='braking':
@@ -1124,6 +1146,8 @@ class J6FollowWorker:
             if dt<self.period_s and not self.wall_clock_batch:return
             if dt>self.send_max_gap_s:
                 self.revoke('send_period_over_budget');return
+            if not self.fixed_tick_batch:
+                self._record_planner_input(self._hold_q, phase)
             target,detail=(None,None) if self.fixed_tick_batch else self._trajectory.advance(self._hold_q,dt)
             if phase=='holding':target=self._hold_q
         if self.fixed_tick_batch:
@@ -1307,9 +1331,12 @@ class J6FollowWorker:
                 else:
                     if wanted[1]<=self._status['active_since_monotonic_s']:
                         projected=self._priming_anchor
+                    self._record_planner_input(projected, 'active', wanted[3])
                     target,trajectory_detail=self._trajectory.advance(projected,now-self._last_send_s)
+            else:
+                self._record_planner_input(projected, 'active', wanted[3])
             offset = (target[5]-self.anchor[5])/math.radians(1.)
-            if wanted[3] in ('home_return', 'placement'):
+            if self.command_mode=='follow' and wanted[3] in ('home_return', 'placement'):
                 from .home import bounded_home_step
                 # dt 放宽到 3×周期（2026-11-01）：双峰应答下实际间隔 >周期时，
                 # 原封顶让目标斜坡只跑名义速度的 ~40%，跟踪差距稳定增长触发
@@ -1380,7 +1407,7 @@ class J6FollowWorker:
         self._last_send_s = result["host_started_monotonic_s"]
         self._last_sent_offset = offset
         self._last_sent_q = target
-        if wanted[3] in ('home_return', 'placement'):
+        if self.command_mode=='follow' and wanted[3] in ('home_return', 'placement'):
             self._home_velocity = home_velocity
         # Never re-authorize after a call returned following revoke.
 

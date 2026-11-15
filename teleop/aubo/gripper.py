@@ -190,6 +190,24 @@ class GripperWorker:
             self._state.update(state, feedback_received_s=self.clock())
         return state
 
+    def _prepare_position_mode(self):
+        mode = self._read(self.driver.read_operation_mode, 'mode')
+        torque = self._read(self.driver.read_torque_enable, 'torque')
+        velocity = self._read(self.driver.read_velocity, 'velocity')
+        hardware_error = self._read(self.driver.read_hardware_error, 'hardware_error')
+        if hardware_error != 0:
+            raise RuntimeError(f'Gripper hardware error before startup: {hardware_error}')
+        if mode == 3:
+            return
+        if mode != 1 or torque != 0 or abs(velocity) > .05:
+            raise RuntimeError(
+                f'Cannot select position mode safely: mode={mode}, '
+                f'torque_enable={torque}, velocity_rpm={velocity}')
+        self.driver.write_register(0x0021, 3, 1)
+        confirmed = self._read(self.driver.read_operation_mode, 'mode')
+        if confirmed != 3:
+            raise RuntimeError(f'Position mode readback failed: mode={confirmed}')
+
     def _send(self, closed, revision, sample):
         target = self.driver.POSITION_CLOSE if closed else self.driver.POSITION_OPEN
         def permitted():
@@ -265,6 +283,7 @@ class GripperWorker:
                 raise RuntimeError('Cannot open gripper serial port')
             connected = True
             fcntl.ioctl(self.driver.ser.fileno(), termios.TIOCEXCL)
+            self._prepare_position_mode()
             sample = self._sample()
             closed = abs(sample['position']-self.driver.POSITION_CLOSE) < abs(sample['position']-self.driver.POSITION_OPEN)
             with self._lock:

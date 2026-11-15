@@ -138,7 +138,8 @@ class PlacementRuntimeTests(unittest.TestCase):
             rows=[json.loads(line) for line in (Path(directory)/'raw/streams.jsonl').read_text().splitlines()]
             self.assertTrue(any(r['kind']=='placement_observation' and r['measured_q_rad'] for r in rows))
             self.assertTrue(any(r['kind']=='sdk_command' and r['attempt']['control_source']=='placement' for r in rows))
-            self.assertFalse(any(r['kind']=='sample' and r.get('control_source')=='teleop' for r in rows))
+            self.assertTrue(any(r['kind']=='sample' and r['recording_paused'] for r in rows))
+            self.assertTrue(any(r['kind']=='planner_target' and r['control_source']=='placement' for r in rows))
             self.assertEqual(segments(rows,25),[])
 
     def test_fatal_latch_cannot_be_reset_by_x(self):

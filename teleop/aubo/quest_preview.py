@@ -271,6 +271,7 @@ def serve_quest(args, shadow, runtime, stack, tls, *, refresh_feedback, feedback
     from vr_teleop_kit.relay import server as relay
     mode = getattr(runtime, "mode", "aubo_readonly_preview")
     motion_available = getattr(runtime, "motion_available", False)
+    home_oneshot = getattr(runtime, 'home_trigger', 'hold') == 'oneshot'
     status = PreviewStatus()
     relay.CAMERA_SPECS.clear()
     relay.CAMERA_READERS.clear()
@@ -285,6 +286,14 @@ def serve_quest(args, shadow, runtime, stack, tls, *, refresh_feedback, feedback
             except ValueError as exc:
                 return JSONResponse(dict(error=str(exc)), status_code=400)
         relay.app.add_api_route('/aubo/operator/{command}', operator_command, methods=['POST'])
+    if getattr(runtime, 'recorder', None):
+        def task_stage(stage: str):
+            try:
+                accepted = runtime.recorder.set_task_stage(stage)
+                return JSONResponse(dict(recorded=accepted, stage=stage), status_code=200 if accepted else 503)
+            except ValueError as exc:
+                return JSONResponse(dict(error=str(exc)), status_code=400)
+        relay.app.add_api_route('/aubo/recording/stage/{stage}', task_stage, methods=['POST'])
     relay.app.add_api_route("/aubo", lambda: HTMLResponse(
         ('<meta charset="utf-8"><title>AUBO Quest</title><h2>' +
         (('AUBO：六轴实体透传' if mode == 'aubo_six_axis_supervised_passthrough' else
@@ -294,7 +303,9 @@ def serve_quest(args, shadow, runtime, stack, tls, *, refresh_feedback, feedback
            if getattr(runtime, 'gripper', None) else '<p>实体夹爪未启用。</p>') +
         '<p>进入头显透视后，视野下缘会显示录制状态卡：当前段号、录制时长、保存确认和连接状态。状态卡只显示后台已确认的信息。</p>'
         '<p id="query-mode"></p><p id="clutch"></p><p id="collection"></p><p id="home"></p><p id="placement"></p><p id="gripper"></p>'
-        '<p>操作提示：左 Y 按住直接回原位，松开停止，无需右 Grip。左摇杆左推＝作废当前段并重启循环；右推＝保存并退出当前循环；上推＝保存当前段并结束录制会话。右 Grip 松开或输入超时会暂停当前段，重新按下并成功接合后续录同一段；右摇杆按下可添加事件标记。</p>'
+        '<p>操作提示：'+('有效 home reference 下左 Y 单击自动回原位，再按左 Y 可中止；无需右 Grip。'
+            if home_oneshot else '左 Y 按住直接回原位，松开停止，无需右 Grip。')+
+        '右 A 按住将平移和旋转倍率降为 0.5 倍，松开恢复。左摇杆左推＝作废当前段并重启循环；右推＝保存并退出当前循环；上推＝保存当前段并结束录制会话。右 Grip 松开或输入超时会标记暂停，原始图像和反馈持续录制；重新接合后继续同一段；右摇杆按下可添加事件标记。</p>'
         '<div id="operator-buttons"><button data-command="pause">暂停／解除暂停</button> '
         '<button data-command="restart_episode">开始／保存并重开</button> '
         '<button data-command="toggle_episode">开始／仅保存本段</button> '
@@ -303,7 +314,8 @@ def serve_quest(args, shadow, runtime, stack, tls, *, refresh_feedback, feedback
         '<button data-command="exit_record">结束并保存整个录制会话</button> '
         '<button data-command="invalidate">本段无效</button> '
         '<button data-command="mark">事件标记</button> '
-        '<button data-command="return_home">准备运动回原位（按住左 Y 执行）</button> '
+        + ('<button data-command="return_home">准备运动回原位（左 Y 单击执行）</button> '
+            if home_oneshot else '<button data-command="return_home">准备运动回原位（按住左 Y 执行）</button> ') +
         '<button data-command="software_reset">软件复位（不回位）</button> '
         '<button data-command="finish_session">停止并结束会话</button></div>'
         '<p id="operator-result"></p><pre id="s"></pre><script>'
@@ -325,7 +337,7 @@ def serve_quest(args, shadow, runtime, stack, tls, *, refresh_feedback, feedback
         '"夹爪："+(g.fault?"故障，后续开合已锁定："+g.fault:g.state==="moving"?"正在"+(g.commanded_closed?"闭合":"张开"):'
         'g.commanded_closed?"闭合目标":"张开目标")+"；右手食指按一下切换"+(!g.input_ready?"；戴好头显，先松开手柄按键再按 Trigger":""):"";'
         'const h=s.home_return;const homes={disabled:"不可用",idle:"待请求",waiting_for_stop:"等待停稳",'
-        'ready:"已准备：按住左 Y 回位，无需右 Grip",moving:"正在回位（松开左 Y 停止）",stopping:"正在确认停稳",'
+        'ready:h?.trigger==="oneshot"?"已准备：再次按左 Y 开始回位，无需右 Grip":"已准备：按住左 Y 回位，无需右 Grip",moving:h?.trigger==="oneshot"?"正在回位（再次按左 Y 中止）":"正在回位（松开左 Y 停止）",stopping:"正在确认停稳",'
         'complete:"已在原位并停稳",cancelled:"已取消，需重新请求",failed:"失败，请检查原因"};'
         'document.getElementById("home").textContent=h?"运动回位："+(homes[h.state]||h.state)+'
         '(h.max_error_deg!=null?"；最大关节误差 "+h.max_error_deg.toFixed(3)+"°":"")+(h.error?"；"+h.error:""):"";'
@@ -336,11 +348,11 @@ def serve_quest(args, shadow, runtime, stack, tls, *, refresh_feedback, feedback
         '(phases[pl.state]||pl.state)+(pl.segment?"；目标："+legs[pl.segment]:"")+"；再次按 X 取消；无需 Grip"+'
         '(pl.error?"；"+pl.error:""):"";'
         'const c=s.collection||{state:"disabled"};'
-        'const states={disabled:"录制未启用",ready:"待录制（向左推摇杆开始）",recording:"录制中",paused:"录制已暂停，等待 Grip 重新接合",saving:"保存中",error:"录制失败"};'
+        'const states={disabled:"录制未启用",ready:"待录制（向左推摇杆开始）",recording:"录制中",paused:"操作暂停，原始数据持续录制",saving:"保存中",error:"录制失败"};'
         'const results={saved:"已保存",invalid:"已标记无效（原始数据保留）",interrupted:"未正常结束"};'
         'document.getElementById("collection").textContent=(s.recording_blocked_reason?"故障锁定，采集不可继续":(states[c.state]||c.state))+"；"+'
         '(c.active_episode!=null?"当前段 "+c.active_episode+"；":"")+'
-        '(c.state==="paused"?"暂停原因："+(c.pause_reason||"等待接合")+"；":"")+'
+        '(c.state==="paused"?"暂停标签："+(c.pause_reason||"未知")+"；原始记录持续":"")+'
         '(c.last_result?"最近段 "+c.last_result.episode_id+"："+(results[c.last_result.disposition]||c.last_result.disposition)+"（已落盘）；":"")+'
         '(s.operator_message||"")+(c.error?"；"+c.error:"");'
         'document.getElementById("operator-buttons").hidden=!("operator_paused" in s);'

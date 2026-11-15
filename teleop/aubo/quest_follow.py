@@ -99,16 +99,21 @@ class J6QuestRuntime(OfflineRuntime):
         self.session_finished = False
         self.session_finish_pending = False
         self.last_operator_message = None
+        self._mark_count = 0
+        self._last_mark = None
         self._recording_error_seen = False
         self._last_saved_episode = None
         self.home = dict(enabled=home_reference is not None,
             reference_path=home_reference['path'] if home_reference else None,
             target_q_rad=list(home_reference['q_rad']) if home_reference else None,
             state='idle' if home_reference else 'disabled', error=home_error,
-            control_button='left_y_hold', requires_right_grip=False, hold_timeout_s=.2,
+            control_button='left_y_press' if home_trigger=='oneshot' else 'left_y_hold',
+            requires_right_grip=False, hold_timeout_s=.2,
             trigger=home_trigger,
-            target_speed_deg_s=math.degrees(HOME_SPEED_RAD_S),
-            target_acceleration_deg_s2=math.degrees(HOME_ACCEL_RAD_S2),
+            target_speed_deg_s=(min(math.degrees(HOME_SPEED_RAD_S),worker.motion_profile.velocity_deg_s)
+                if worker.command_mode=='passthrough' else math.degrees(HOME_SPEED_RAD_S)),
+            target_acceleration_deg_s2=(min(math.degrees(HOME_ACCEL_RAD_S2),worker.motion_profile.acceleration_deg_s2)
+                if worker.command_mode=='passthrough' else math.degrees(HOME_ACCEL_RAD_S2)),
             requested_monotonic_s=None, completed_monotonic_s=None, max_error_deg=None,
             failure_evidence=None)
         self._home_offered = False
@@ -188,14 +193,18 @@ class J6QuestRuntime(OfflineRuntime):
                 self.home['completed_monotonic_s'] = self.clock()
                 self.last_operator_message = '已在原位，无需运动；请松开再按 Grip 控制'
             else:
-                self.last_operator_message = '回位已准备：按住左 Y 回位，松开即停止；无需右 Grip'
+                self.last_operator_message = ('回位已准备：自动回位中，再按左 Y 可中止；无需右 Grip'
+                    if self.home_trigger=='oneshot' and self._home_button_requested else
+                    '回位已准备：按左 Y 开始回位；无需右 Grip')
             self._home_event()
             return
         if phase == 'ready':
             if self._home_offered and hardware['state'] == 'active':
                 self.home['state'] = 'moving'
                 self._home_started_s = self.clock()
-                self.last_operator_message = '正在回到已保存原位；保持左 Y 按住，松开即停止'
+                self.last_operator_message = ('正在回到已保存原位；再按左 Y 可中止'
+                    if self.home_trigger=='oneshot' else
+                    '正在回到已保存原位；保持左 Y 按住，松开即停止')
                 self._home_event()
             elif self._home_offered and hardware['state'] in ('stop_requested', 'stopping'):
                 self._cancel_home(hardware.get('fault') or 'home_start_interrupted')
@@ -263,7 +272,7 @@ class J6QuestRuntime(OfflineRuntime):
             return False
         paused = self.recorder.pause_episode(reason, stamp=stamp)
         if paused:
-            self.last_operator_message = '录制已暂停；重新按下右 Grip 并成功接合后继续同一段'
+            self.last_operator_message = '已标记 Grip 暂停，原始观测持续录制；重新接合后继续同一段'
         return paused
 
     def _resume_recording_after_clutch(self, stamp=None):
@@ -315,6 +324,9 @@ class J6QuestRuntime(OfflineRuntime):
                 self._home_cancel_reason = 'home_button_released'
                 reason = 'home_button_released'
             elif command == 'home_hold_start':
+                if (self.home_trigger=='oneshot' and self._home_busy() and
+                        self._home_button_requested):
+                    self._home_cancel_reason = 'home_abort_pressed'
                 reason = 'home_requested'
             elif command in ('toggle_episode', 'restart_episode') and self.recorder is not None:
                 reason = ('episode_finished' if self.recorder.status()['active_episode'] is not None
@@ -474,8 +486,11 @@ class J6QuestRuntime(OfflineRuntime):
                            'invalidate', 'software_reset', 'finish_session', 'exit_record'):
                 self._cancel_home('operator_'+command)
                 self.placement.cancel('operator_'+command)
+            mark_id=self._mark_count+1 if command=='mark' else None
+            recorded=False
             if self.recorder:
-                self.recorder.record('operator_event', stamp=stamp, command=command)
+                recorded=self.recorder.record('operator_event', stamp=stamp, command=command,
+                    **(dict(mark_id=mark_id) if mark_id is not None else {}))
             with self._operator_lock:
                 if command == 'pause':
                     self.operator_paused = not self.operator_paused
@@ -485,7 +500,14 @@ class J6QuestRuntime(OfflineRuntime):
                     self.last_operator_message = ('已锁定暂停；解除后仍需松开再按 Grip' if self.operator_paused
                                                   else '暂停已解除；请松开再按 Grip')
                 elif command == 'mark':
-                    self.last_operator_message = '事件标记已提交' if self.recorder else '未开启录制，未保存标记'
+                    self._mark_count += 1
+                    collection=self.recorder.status() if self.recorder else {}
+                    self._last_mark = dict(count=self._mark_count, host_monotonic_s=stamp,
+                        recorded=bool(recorded), episode_id=collection.get('active_episode'),
+                        episode_elapsed_s=collection.get('active_episode_elapsed_s'))
+                    self.last_operator_message = (f'事件标记 #{self._mark_count} 已记录'
+                        if recorded else '未开启录制，未保存标记' if not self.recorder else
+                        '标记未保存：录制队列写入失败')
                 elif command == 'placement_conflict':
                     self.placement.cancel('x_y_conflict')
                     self._cancel_home('x_y_conflict')
@@ -500,12 +522,12 @@ class J6QuestRuntime(OfflineRuntime):
                     if self.placement.busy():
                         self.last_operator_message = '正在自动搬运，左 Y 暂不执行；按左 X 可以取消搬运'
                         continue
-                    if self.home_trigger == 'oneshot' and self.home['state'] == 'moving':
+                    if self.home_trigger == 'oneshot' and self._home_busy() and self._home_button_requested:
                         self._cancel_home('home_abort_pressed')
                         continue
                     hardware = self.worker.status()
-                    if (not self.home['enabled'] or not self.worker.six_axis or self.worker.command_mode != 'follow'):
-                        self.last_operator_message = '运动回位不可用：需要有效原位配置和六轴 Follow 模式'
+                    if (not self.home['enabled'] or not self.worker.six_axis):
+                        self.last_operator_message = '运动回位不可用：需要有效原位配置和六轴控制模式'
                         continue
                     if (hardware['fatal'] or hardware['stop_result_unknown'] or self.session_finished
                             or self.session_finish_pending):
@@ -525,7 +547,9 @@ class J6QuestRuntime(OfflineRuntime):
                     self._home_quiet_s = self._home_quiet_stamp = None
                     self.submit_fault('home_requested')
                     self._pause_recording_for_clutch('home_return', stamp)
-                    self.last_operator_message = '已请求回原位；确认停稳后保持左 Y 按住即可回位，无需右 Grip'
+                    self.last_operator_message = ('已请求回原位；确认停稳后自动回位，无需右 Grip'
+                                                  if self.home_trigger == 'oneshot' else
+                                                  '已请求回原位；确认停稳后保持左 Y 按住即可回位，无需右 Grip')
                     self._home_event()
                 elif command == 'software_reset':
                     if self.session_finished:
@@ -677,8 +701,9 @@ class J6QuestRuntime(OfflineRuntime):
                     if (not self._home_busy() and not self.placement.busy() and
                             not self.buttons.home_hold_active(stamp)):
                         self.worker.revoke('grip_released')
-                    self._pause_recording_for_clutch('grip_released', stamp)
-            if self.recorder and not self.recorder.status()['recording_paused']:
+                    if not self._home_busy() and not self.placement.busy():
+                        self._pause_recording_for_clutch('grip_released', stamp)
+            if self.recorder:
                 self.recorder.record('xr', stamp=stamp, frame=xr_record(frame))
         else:
             if self.gripper:
@@ -723,6 +748,11 @@ class J6QuestRuntime(OfflineRuntime):
                      not self.buttons.home_hold_active(self.clock())) or
                     self._home_cancel_reason is not None or self._operator_barrier):
                 return None
+            hardware=self.worker.status()
+            if hardware['state']=='priming' and hardware['priming_ready']:
+                # Home has no hand delta to reanchor. Acknowledge the measured
+                # stationary anchor only after the same priming checks passed.
+                self.worker.acknowledge_priming_reanchor(self._home_session,self.clock())
             candidate = Candidate(tuple(self.home['target_q_rad']), self.clock(), self._home_session)
             if not self.worker.offer(candidate, control_source='home_return'):
                 return None
@@ -945,6 +975,11 @@ class J6QuestRuntime(OfflineRuntime):
             episode_transition=dict(self._episode_transition) if self._episode_transition else None,
             software_reset_pending=self.software_reset_pending,
             placement=dict(self.placement.status),
+            precision_mode=bool(self.shadow.core._arms.get('right', {}).get('last_precision', False)),
+            precision_factor=float(self.shadow.core.config.precision_factor),
+            mark_count=self._mark_count,
+            last_mark=(dict(self._last_mark, age_s=max(0.,self.clock()-self._last_mark['host_monotonic_s']))
+                       if self._last_mark else None),
             home_return=dict(self.home, button_held=self.buttons.home_hold_active(self.clock())),
             operator_message=blocked or self.last_operator_message,
             recording_blocked_reason=blocked, session_finished=self.session_finished,
@@ -1020,8 +1055,9 @@ def main(argv=None):
     p.add_argument("--diagnostic-output", help="opt-in finite joint diagnostic JSONL under /data; no images")
     p.add_argument('--record', nargs='?', const='auto', help='enable button-managed state/action recording in a new /data directory')
     p.add_argument('--task', help='truthful task description for recorded episodes')
-    p.add_argument('--record-fps', type=int, choices=(20,25,50), default=25,
-                   help='raw state snapshot rate; independent of SDK send frequency (default 25)')
+    p.add_argument('--record-cameras', help='JSON config for scene_left/scene_right/wrist, each RGB at 30 fps')
+    p.add_argument('--record-fps', type=int, choices=(20,25,30,50), default=30,
+                   help='raw state snapshot rate; independent of SDK send frequency (default 30)')
     p.add_argument("--waypoint-feedback", action="store_true", help="use verified vendor waypoint push for measured joints")
     p.add_argument("--headless", action="store_true")
     p.add_argument("--fixed-tick-batch", action="store_true", help="experimental bounded 5ms/4-point batch execution; requires passthrough A/B/C")
@@ -1067,6 +1103,15 @@ def main(argv=None):
         except ValueError as exc:p.error(str(exc))
     follow_hz = args.follow_hz or 20
     capture_path = None
+    camera_specs = None
+    if args.record_cameras:
+        if not args.record or not args.gripper:
+            p.error('--record-cameras requires --record and --gripper for seven-dimensional capture')
+        from .cameras import load_camera_config
+        try:
+            camera_specs = load_camera_config(args.record_cameras)
+        except (OSError, ValueError, TypeError) as exc:
+            p.error(str(exc))
     if args.record:
         if not (args.execute_six_axis and args.task and args.task.strip()):
             p.error('--record requires --execute-six-axis and a nonempty --task')
@@ -1352,7 +1397,7 @@ def main(argv=None):
                              quest_to_base=alignment["quest_to_base"] if alignment else None,
                              input_timeout_s=worker.input_max_age_s)
         home_reference, home_error = None, None
-        if args.execute_six_axis and command_mode == 'follow':
+        if args.execute_six_axis:
             try:
                 home_reference = load_home(args.home_reference, prepare['joint_ranges_rad'])
             except (OSError, ValueError, KeyError, TypeError, OverflowError) as exc:
@@ -1363,14 +1408,14 @@ def main(argv=None):
             placement_reference = load_placement(args.placement_reference, home_reference, prepare['joint_ranges_rad'])
         recorder = None
         if capture_path is not None:
-            recorder = RawRecorder(capture_path, task=args.task, fps=args.record_fps,
+            recorder = RawRecorder(capture_path, task=args.task, fps=args.record_fps, cameras=camera_specs,
                 metadata=dict(command_mode=command_mode, requested_send_hz=1./worker.period_s,
                     target_policy=worker.status()["target_policy"],
                     passthrough_alpha=worker.passthrough_alpha if command_mode == "passthrough" else None,
                     gripper_enabled=args.gripper,
                     gripper_control='right_trigger_press_toggle' if args.gripper else None,
                     input_timeout_s=worker.input_max_age_s,
-                    grip_release_policy='immediate_revoke_and_pause_recording_until_successful_reengagement',
+                    grip_release_policy='immediate_revoke; typed_pause; continuous_raw_observations',
                     state_query_mode='process' if args.parallel_state_query else 'serial',
                     rotation=args.rotation, controller_joint_ranges_rad=prepare['joint_ranges_rad'],
                     quest_to_base=shadow.core.config.r_calib,
@@ -1378,10 +1423,11 @@ def main(argv=None):
                     placement_reference=placement_reference,
                     operator_buttons=dict(left_x='placement' if placement_reference else 'unassigned', left_stick_left='restart_loop',
                         left_stick_right='exit_loop', left_stick_up='exit_record',
-                        left_y_hold='return_home' if command_mode == 'follow' else 'unassigned',
-                        right_grip_release='pause_recording_until_successful_reengagement',
-                        input_timeout='pause_recording_until_successful_reengagement',
-                        right_b='unassigned', right_stick_click='mark',
+                        left_y_press='return_home' if home_reference and args.home_trigger=='oneshot' else 'unassigned',
+                        left_y_hold='return_home' if home_reference and args.home_trigger=='hold' else 'unassigned',
+                        right_grip_release='typed_pause_continuous_raw_capture',
+                        input_timeout='typed_pause_continuous_raw_capture',
+                        right_a='precision_hold_half_scale', right_b='unassigned', right_stick_click='mark',
                         right_trigger='gripper_toggle' if args.gripper else 'unassigned'),
                     home_reference=home_reference, home_reference_error=home_error,
                     home_target_speed_deg_s=math.degrees(HOME_SPEED_RAD_S),
@@ -1404,6 +1450,11 @@ def main(argv=None):
             driver, settings = load_vehicle_driver(args.gripper_driver_root, args.gripper_port)
             gripper = GripperWorker(driver, settings, recorder=recorder)
             stack.callback(gripper.close)
+        cameras = None
+        if recorder and camera_specs:
+            from .cameras import CameraGroup
+            cameras = CameraGroup(recorder)
+            stack.callback(cameras.close)
         runtime = J6QuestRuntime(shadow,worker,recorder=recorder,home_reference=home_reference,home_error=home_error,
             home_trigger=args.home_trigger, placement_reference=placement_reference,
             gripper=gripper,
@@ -1423,6 +1474,8 @@ def main(argv=None):
             # than a serial response deadline. Start both hardware readers
             # only after that work; the receiver cannot command a starting
             # gripper, and startup never enables torque or sends a target.
+            if cameras is not None:
+                cameras.start()
             if gripper is not None:
                 gripper.start()
                 deadline = time.monotonic()+2.
@@ -1455,8 +1508,8 @@ def main(argv=None):
                     1./worker.period_s,args.waypoint_feedback)
         LOG.warning("SDK profile memory readback (not controller/pendant settings): %s", profile_readback)
         LOG.warning("COMMAND MODE=%s; passthrough does not assume FollowMode speed/acceleration interpolation", command_mode)
-        LOG.info("Quest valid-input timeout=%.3fs; normal teleop: right Grip release revokes immediately; home return: hold left Y, right Grip not required, Y release/200ms hold gap revokes; queued-pose age gate remains 200ms",
-                 worker.input_max_age_s)
+        LOG.info("Quest valid-input timeout=%.3fs; normal teleop: right Grip release revokes immediately; home return: left Y %s trigger, right Grip not required; right A hold applies %.2fx translation/rotation scale; queued-pose age gate remains 200ms",
+                 worker.input_max_age_s, args.home_trigger, shadow.core.config.precision_factor)
         LOG.info("State query mode=%s (%s), SDK connections=%s; policy=%s: active=%sms, idle=%sms; feedback age limit=%sms; fresh query before engagement",
                  worker.status()["state_query_mode"].upper(), worker.status()["state_query_mode_label"],
                  worker.status()["sdk_connections"],
@@ -1464,7 +1517,7 @@ def main(argv=None):
                  worker.status()["active_state_query_period_s"]*1000,
                  worker.status()["idle_state_query_period_s"]*1000, worker.feedback_max_age_s*1000)
         if recorder:
-            LOG.info('Recording READY (not started): %s; left Y home available in Follow only; left stick left=restart loop, right=exit loop, up=exit record; right Grip release/input timeout pauses current segment until successful re-engagement; right stick click=mark; status /aubo', capture_path)
+            LOG.info('Recording READY (not started): %s; left Y single-press home when reference is valid; right A hold=%.2fx precision; left stick left=restart loop, right=exit loop, up=exit record; right Grip release/input timeout annotates the segment; raw observations remain continuous; right stick click=mark; status /aubo', capture_path, shadow.core.config.precision_factor)
         def feedback_status():
             status = worker.status()
             return dict(error=status["fault"] if status["fatal"] else None,

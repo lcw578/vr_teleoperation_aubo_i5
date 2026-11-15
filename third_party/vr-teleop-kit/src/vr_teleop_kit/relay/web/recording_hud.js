@@ -23,11 +23,14 @@
     return `上一段：${label}保存未确认`;
   };
 
-  function model(status, { connection = "connected", activeElapsedSeconds = null } = {}) {
+  function recordingModel(status, { connection = "connected", activeElapsedSeconds = null } = {}) {
+    const oneshot = status?.home_return?.trigger === "oneshot";
     const prompts = {
       promptLine1: "左摇杆：← 重启 · → 退出循环 · ↑ 结束录制 · ↓ 未分配",
-      promptLine2: "右 Grip：松开或超时暂停，重新接合后续录 · 右摇杆按下：标记",
-      promptLine3: "左 Y：按住回原位，松开停止（无需右 Grip）",
+      promptLine2: "右 Grip：松开暂停／原始采集继续 · 右摇杆按下：事件标记",
+      promptLine3: (status?.home_return?.enabled === false ? "左 Y：原位配置不可用" : oneshot
+        ? "左 Y：单击回位／再按取消（无需右 Grip）" : "左 Y：按住回位／松开停止（无需右 Grip）")
+        + " · 右 A：按住半倍率",
     };
     const empty = { visible: true, tone: "waiting", title: "录制状态连接中…",
       detail: "正在读取本次会话状态", previous: "", ...prompts };
@@ -44,7 +47,7 @@
     if (connection === "disconnected") {
       const lastState = collection.active_episode != null
         ? collection.state === "paused"
-          ? `${segmentLabel(collection.active_episode)} · 已暂停`
+          ? `${segmentLabel(collection.active_episode)} · 操作暂停/仍在采集`
           : `${segmentLabel(collection.active_episode)} · 录制中`
         : collection.state === "saving" || collection.pending_saves > 0
           ? "正在保存"
@@ -64,7 +67,7 @@
     const home = status.home_return;
     if (home && !collection.error && ["waiting_for_stop", "ready", "moving", "stopping"].includes(home.state)) {
       return { visible: true, tone: "saving", title: home.state === "moving" ? "正在回原位" : "回位准备／停止确认中",
-        detail: "保持左 Y 按住 · 松开即请求停止", previous, ...prompts };
+        detail: oneshot ? "自动回位 · 再按左 Y 中止 · 无需右 Grip" : "保持左 Y 按住 · 松开即请求停止", previous, ...prompts };
     }
     if (!collection.enabled && hardware.state) {
       // Free teleoperation needs admission feedback even without recording.
@@ -127,13 +130,13 @@
         episode_finished: "当前段正在保存",
         episode_invalid: "当前段正在标记无效",
         operator_pause: "网页暂停已锁定",
-        home_return: "回位期间暂停录制",
+        home_return: "回位期间自动运动，离线可筛选",
       })[collection.pause_reason] || "操作已暂停";
       const closing = ["restart_loop", "exit_loop", "exit_record", "episode_finished", "episode_invalid"]
         .includes(collection.pause_reason);
       return { visible: true, tone: "saving",
-        title: `${segmentLabel(collection.active_episode)} · 已暂停`,
-        detail: closing ? reason : `${reason}；重新按下右 Grip 并成功接合后继续同一段`, previous, ...prompts };
+        title: `${segmentLabel(collection.active_episode)} · 操作暂停/仍在采集`,
+        detail: closing ? reason : `${reason}；图像、关节与工具原始记录继续写入`, previous, ...prompts };
     }
     if (collection.active_episode != null && collection.state === "recording") {
       const elapsed = activeElapsedSeconds == null ? collection.active_episode_elapsed_s : activeElapsedSeconds;
@@ -157,6 +160,20 @@
         status.episode_waiting_start ? "循环已结束 · 向左推摇杆开始下一段" :
           "待录制 · 向左推摇杆开始循环",
       detail: "准备就绪", previous, ...prompts };
+  }
+
+  function model(status, options = {}) {
+    const view = recordingModel(status, options);
+    const mark = status?.last_mark;
+    const connected = !options.connection || options.connection === "connected";
+    const precision = status?.precision_mode ? "精细 0.5×" : "普通 1.0×";
+    let notice = `遥操倍率：${precision} · 事件标记：暂无`;
+    if (mark && Number.isInteger(mark.count)) {
+      const at = Number.isFinite(mark.episode_elapsed_s) ? ` · 本段 ${formatDuration(mark.episode_elapsed_s)}` : "";
+      notice = `遥操：${precision} · ${mark.recorded ? "已记录标记" : "标记未保存"} #${mark.count}${at}`;
+    }
+    return { ...view, notice: connected ? notice : "", markRecent: connected &&
+      !!mark?.recorded && Number.isFinite(mark.age_s) && mark.age_s < 3 };
   }
 
   const colors = {
@@ -188,10 +205,12 @@
     ctx.fillStyle = "#edf2f8";
     ctx.fillText(view.detail || "", 36, 106, width - 72);
     ctx.font = '500 23px "Noto Sans CJK SC", system-ui, sans-serif';
+    ctx.fillStyle = view.markRecent ? "#62ffb3" : "#c2ccd8";
+    ctx.fillText(view.notice || "", 36, 140, width - 72);
     ctx.fillStyle = "#e5edf6";
-    ctx.fillText(view.promptLine1 || "", 36, 160, width - 72);
-    ctx.fillText(view.promptLine2 || "", 36, 198, width - 72);
-    ctx.fillText(view.promptLine3 || "", 36, 236, width - 72);
+    ctx.fillText(view.promptLine1 || "", 36, 178, width - 72);
+    ctx.fillText(view.promptLine2 || "", 36, 212, width - 72);
+    ctx.fillText(view.promptLine3 || "", 36, 246, width - 72);
     ctx.fillStyle = "#c2ccd8";
     ctx.fillText(view.previous || "", 36, 280, width - 72);
   }
