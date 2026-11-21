@@ -1,6 +1,6 @@
 <mujoco model="aubo_i5_ros2_demo">
   <!--
-    演示场景变体 = scene_ros2.xml 的完整拷贝 + 番茄演示任务物体（DATA_PIPELINE_PLAN.md 阶段 A）。
+    演示场景变体 = scene_ros2.xml 的完整拷贝 + 番茄演示任务物体（docs/project/DATA_PIPELINE_PLAN.md 阶段 A）。
     定位（用户 2026-09-25 裁定）：**管线测试床**——接触物理以"能抓起、能落篮"为准，不做严谨调参。
 
     为什么是完整拷贝而不是 include scene_ros2.xml：
@@ -13,7 +13,7 @@
        并行变体的同款约定）。反过来，本文件的 demo_* 物体不得抄回 scene_ros2.xml——
        那是基准台架的场景，任务物体会挡住 follow_bench 的位姿。
 
-    演示物体（几何依据 DATA_PIPELINE_PLAN.md §1，任务区 = 正前方 y≈−0.8 m、距基座 700–944 mm）：
+    演示物体（几何依据 docs/project/DATA_PIPELINE_PLAN.md §1，任务区 = 正前方 y≈−0.8 m、距基座 700–944 mm）：
       · demo_table  桌子（整体柱式）：桌面 0.35×0.35，上表面 z=−0.1（= 真机 1.1 m 果实高度下限）
       · demo_cube   方块 5 cm，放在桌面中央 (0, −0.7)——距基座 0.704 m，在任务区内
       · demo_basket 果篮（4 壁 + 底）：底盘上 (0.35, 0.25)，对应论文 Figure 11 的果篮位置

@@ -64,7 +64,7 @@
 
 Git固定标签：`aubo-c2-refined90-2026-11-12`。在没有未保存改动的独立检出中，可用`git switch --detach aubo-c2-refined90-2026-11-12`恢复该源码/测试/文档快照。标签不包含机器上的SDK、构建产物或运行时清单，也不会启动机械臂。
 
-可机读配置：[baseline.json](baselines/aubo-c2-refined90-2026-11-12/baseline.json)；源码清单：[source.sha256](baselines/aubo-c2-refined90-2026-11-12/source.sha256)。从项目根目录可离线核对：
+可机读配置：[baseline.json](baselines/aubo-c2-refined90-2026-11-12/baseline.json)；源码清单：[source.sha256](baselines/aubo-c2-refined90-2026-11-12/source.sha256)。清单记录原始验收快照，须在标签 `aubo-c2-refined90-2026-11-12` 的独立检出中核对：
 
 ```bash
 sha256sum -c docs/baselines/aubo-c2-refined90-2026-11-12/source.sha256
@@ -86,7 +86,7 @@ sha256sum -c docs/baselines/aubo-c2-refined90-2026-11-12/source.sha256
 ```bash
 AUBO_RUNTIME_DIR=/data/VR_teleoperation_runtime \
   /data/VR_teleoperation_runtime/.venv/bin/python -m unittest discover -s tests -p 'test_aubo_*.py'
-node --test tests/test_recording_hud.cjs tests/test_xr_input_gate.cjs
+node --test tests/test_xr_input_gate.cjs
 ```
 
 车端**已有已验收清单**时的等价人工VR启动命令如下。先退出原会话，启动冲突检查会拒绝重复SDK连接；下列命令登录真实设备并开放人工Grip运动，SDK密码交互输入。
@@ -104,6 +104,6 @@ bash scripts/aubo_quest_follow.sh \
   --rotation world --duration 1800 --relay-port 8443
 ```
 
-网页`http://127.0.0.1:8443/`，先Start Teleop，完全松开右Grip，再捏合。改用`--motion-profile balanced`或`conservative`选择回退档，需退出当前连接再启动，不运行中换档。本轮未启用的录制/夹爪不因历史入口默认选项而自动纳入基线。`scripts/aubo_passthrough.sh`默认可能启用录制和夹爪；复现纯遥操时需明确`--no-record --no-gripper`或使用上述命令。
+网页`http://127.0.0.1:8443/`，先Start Teleop，完全松开右Grip，再捏合。改用`--motion-profile balanced`或`conservative`选择回退档，需退出当前连接再启动，不运行中换档。本轮未启用的录制/夹爪不因历史入口默认选项而自动纳入基线。当前正式入口为 `scripts/aubo_quest_follow.sh`，默认关闭录制、夹爪和数据采集。
 
 误按实体急停后先现场释放/复位并恢复允许状态；软件不能代为释放硬件急停。确认机械臂停稳、旧会话退出、停止结果明确，再核对新鲜状态并重建会话。不得自动追赶急停前目标。20:31恢复事件记录在对齐验收文档中；PID及会话结束时间属于当次记录，不是持久服务标识。

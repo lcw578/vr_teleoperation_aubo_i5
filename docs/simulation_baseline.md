@@ -47,8 +47,8 @@ flowchart TD
 | 同目录 `ik/decoupled_ik.py` | 作者FK、雅可比、解耦DLS公式，注入AUBO模型 |
 | 同目录 `relay/server.py`、`relay/web/` | 网页、腕部拟合、Relay、WebRTC与输入传输 |
 | `assets/aubo_i5/scene_ros2_rg_cameras.xml` 及其includes | AUBO/RG几何、三相机安装 |
-| `ros2_ws/src/aubo_i5_teleop/scripts/gripper_profile.py` | 纯Python工具与夹爪参数；原生入口覆盖RG_READY |
-| `ros2_ws/src/aubo_i5_teleop/config/robot_spec.yaml` | 带来源的关节范围和参考速度上界 |
+| `teleop/gripper_profile.py` | 纯Python工具与夹爪参数；原生入口覆盖RG_READY |
+| `teleop/config/robot_spec.yaml` | 带来源的关节范围和参考速度上界 |
 
 读取ROS目录下的配置和纯Python文件，不代表依赖ROS节点。
 显示状态等于应用的关节命令；这里的锚定反馈是虚拟显示状态，不是真机实测。
@@ -150,8 +150,6 @@ PC monotonic与Quest t_client保留不同时间域，不伪造同步；排队年
 | tool_local | 显式比较项，未作为当前基线 |
 | AG95 | 可选夹爪，非当前默认 |
 | physics | 实验对照；新增参考整形存在已复现暂态命令振荡 |
-| 旧ROS Route B | 历史回退；authoritative_session.sh仍指向它 |
-| Route A | 历史归档 |
 
 后续真机接入优先增加执行／实际反馈后端，保留当前核心作对照。
 修改默认姿态、映射、算法或参数时，更新基线并针对变化重新验收。
@@ -164,12 +162,9 @@ PC monotonic与Quest t_client保留不同时间域，不伪造同步；排队年
 模型资源和测试文件，不含证书、缓存或会话数据。base_git_head只是基础提交，工作区
 包含未提交改动，以文件指纹说明本轮内容。该清单不是可恢复的完整Git归档。
 
-```bash
-cd /home/lcw/VR_teleoperation
-sha256sum --check --quiet docs/baselines/sim-world-rg-2026-10-12.sha256
-```
+原始清单包含清理前的文件路径，作为历史验收记录保留。当前文件的验证使用项目测试。
 
 腕部校准、浏览器个人参数不在源码指纹内。
 2026-10-13离线接入补充后，旧清单中的 README、teleop/mujoco_session.py和
 tests/test_mujoco_teleop.py有已说明的变动（离线说明与录制路径/测试），旧清单保留为历史快照。
-当前源码核验见 [本轮记录](aubo_offline_completion_2026-10-13.md)。
+当前源码核验使用项目环境中的 MuJoCo 单元测试和传输冒烟测试。

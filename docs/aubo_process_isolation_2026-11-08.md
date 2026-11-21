@@ -12,7 +12,7 @@
 - 接收新鲜度 200ms、SDK 预算 500ms、停止后新鲜状态及稳定关节判据保持。B 子进程或 IPC 失效会使缓存失效，不自动重连或恢复运动。只有只读子进程允许在无法正常退出时被终止，不对运动进程实施同类清理。
 - 停止确认完成、原状态线程退出后，才执行 B 登出与子进程回收。旧的同进程 `RobotStateObserver` 接口保留供原测试和兼容路径使用；Quest 并行状态入口和透传启动器要求新的进程缓存能力。
 
-涉及文件：`teleop/aubo/process_state.py`、`native/follow.cpp`、`follow.py`、`quest_follow.py`、`scripts/aubo_passthrough.sh`、`scripts/build_aubo_follow.sh`。未改 VR 映射、IK、alpha、路由、调度或机器人设置；未增加运动整形，此任务仅处理状态 SDK 隔离。
+涉及文件：`teleop/aubo/process_state.py`、`native/follow.cpp`、`follow.py`、`quest_follow.py`、`scripts/aubo_quest_follow.sh`、`scripts/build_aubo_follow.sh`。未改 VR 映射、IK、alpha、路由、调度或机器人设置；未增加运动整形，此任务仅处理状态 SDK 隔离。
 
 ## 构建、检查和部署
 

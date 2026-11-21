@@ -20,19 +20,3 @@ teleop_env() {
   export PATH="$(dirname "$TELEOP_PYTHON"):/usr/local/bin:/usr/bin:/bin:$HOME/.local/bin"
   export VIRTUAL_ENV="$(dirname "$(dirname "$TELEOP_PYTHON")")"
 }
-
-teleop_ros_env() {
-  teleop_env || return
-  local overlay="$TELEOP_RUNTIME_ROOT/ros2/install"
-  [[ -f "$overlay/local_setup.bash" ]] || {
-    echo "Build the isolated ROS overlay with scripts/build_ros_clean.sh" >&2
-    return 1
-  }
-  # ROS setup scripts are not nounset-safe; restore the caller's option.
-  local had_nounset=0
-  [[ $- != *u* ]] || had_nounset=1
-  set +u
-  source /opt/ros/humble/setup.bash
-  source "$overlay/local_setup.bash"
-  [[ $had_nounset == 0 ]] || set -u
-}

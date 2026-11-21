@@ -15,18 +15,18 @@ import threading
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "third_party/vr-teleop-kit/src"))
-sys.path.insert(0, str(ROOT / "ros2_ws/src/aubo_i5_teleop/scripts"))
 
 import mujoco
 import numpy as np
 import yaml
-from gripper_profile import resolve
+from teleop.gripper_profile import resolve
 from vr_teleop_kit.core.quest_teleop import QuestTeleoperator, QuestTeleoperatorConfig
 
 LOG = logging.getLogger("aubo_mujoco")
 JOINTS = ("shoulder_joint", "upperArm_joint", "foreArm_joint", "wrist1_joint", "wrist2_joint", "wrist3_joint")
-SPEC = yaml.safe_load((ROOT / "ros2_ws/src/aubo_i5_teleop/config/robot_spec.yaml").read_text())
+SPEC = yaml.safe_load((ROOT / "teleop/config/robot_spec.yaml").read_text())
 QUEST_TO_BASE = [[-1., 0., 0.], [0., 0., 1.], [0., 1., 0.]]
 # User-selected upright preview: inclined upper arm, horizontal forearm,
 # level forward tool, wrist camera above, wrist3 centered for bidirectional roll.
